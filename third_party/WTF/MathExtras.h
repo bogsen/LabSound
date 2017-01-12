@@ -39,7 +39,7 @@
 #include <cmath>
 #endif
 
-#if OS(DARWIN)
+#if OS(DARWIN) || OS(ANDROID)
 #include <math.h>
 #include <cmath>
 #endif
