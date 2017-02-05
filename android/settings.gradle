@@ -1,0 +1,3 @@
+rootProject.name = 'labsound-root'
+
+include ':labsound', ':libnyquist', ':labsound-examples', ':labsound-examples-app'

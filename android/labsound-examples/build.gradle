@@ -1,0 +1,74 @@
+apply plugin: 'com.android.model.library'
+
+def labSoundRoot = file("${projectDir}/../../")
+def jniSourcesPath = "${projectDir}/src/main/jni"
+def labSoundExamplesSrc = "${labSoundRoot}/examples/src"
+
+def labSoundExamplesCppFlags = [
+        "-std=c++11",
+        "-fexceptions",
+        "-frtti"
+]
+
+def labSoundExamplesReleaseCppFlags = [
+        "-O3",
+        "-DNDEBUG"
+]
+
+model {
+    android {
+        compileSdkVersion buildConfig.compileSdkVersion
+        buildToolsVersion buildConfig.buildToolsVersion
+
+        defaultConfig {
+            minSdkVersion.apiLevel buildConfig.minSdkVersion
+            targetSdkVersion.apiLevel buildConfig.targetSdkVersion
+            versionCode 1
+            versionName "1.0"
+        }
+
+        ndk {
+            platformVersion ndkBuildConfig.platformVersion
+            moduleName "labSoundExamples"
+            toolchain ndkBuildConfig.toolchain
+            stl ndkBuildConfig.stl
+            abiFilters.addAll(ndkBuildConfig.abiFilters)
+
+            cppFlags.addAll(labSoundExamplesCppFlags)
+
+            cppFlags.add("-I" + jniSourcesPath.toString())
+            cppFlags.add("-I" + labSoundExamplesSrc.toString())
+            ldLibs.addAll(["log", "android", "z", "m"])
+        }
+
+        buildTypes {
+            debug {
+            }
+
+            release {
+                ndk {
+                    cppFlags.addAll(labSoundExamplesReleaseCppFlags)
+                    CFlags.addAll(labSoundExamplesReleaseCppFlags)
+                }
+            }
+        }
+
+        sources {
+            main {
+
+                jni {
+                    source {
+                        srcDir jniSourcesPath
+                        srcDir labSoundExamplesSrc
+
+                        exclude "ExamplesMain.cpp"
+                    }
+
+                    dependencies {
+                        project ':labsound' linkage 'shared'
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,97 @@
+apply plugin: "com.android.model.native"
+
+def labSoundRoot = file("${projectDir}/../../")
+def labSoundThirdParty = file("${labSoundRoot}/third_party")
+def labSoundSrc = file("${labSoundRoot}/src")
+def labSoundSrcExtended = file("${labSoundSrc}/extended")
+def labSoundInclude = file("${labSoundRoot}/include")
+def kissFft = file("${labSoundThirdParty}/kissfft")
+def kissFftSrc = file("${kissFft}/src")
+def json11Src = file("${labSoundThirdParty}/src")
+def rtAudio = file("${labSoundThirdParty}/rtaudio")
+def rtAudioSrc = file("${rtAudio}/src")
+def ooura = file("${labSoundThirdParty}/ooura")
+def oouraSrc = file("${ooura}/src")
+def nyquist = file("${labSoundThirdParty}/libnyquist")
+
+def labSoundCppFlags = [
+        "-std=c++11",
+        "-fexceptions",
+        "-frtti",
+        "-ffast-math",
+        "-mfpu=neon",
+        "-DARM_NEON_ENABLE",
+        "-DWTF_USE_WEBAUDIO_KISSFFT"
+]
+
+def labSoundReleaseCppFlags = [
+        "-O3",
+        "-DNDEBUG"
+]
+
+model {
+    android {
+        compileSdkVersion buildConfig.compileSdkVersion
+        buildToolsVersion buildConfig.buildToolsVersion
+
+        ndk {
+            platformVersion ndkBuildConfig.platformVersion
+            moduleName 'labSound'
+            toolchain ndkBuildConfig.toolchain
+            stl ndkBuildConfig.stl
+            abiFilters.clear()
+            abiFilters.addAll(ndkBuildConfig.abiFilters)
+
+            cppFlags.addAll(labSoundCppFlags)
+
+            cppFlags.add("-I${labSoundSrc}".toString())
+            cppFlags.add("-I${labSoundInclude}".toString())
+
+            cppFlags.add("-I${kissFft}/_kiss_fft_guts.hpp".toString())
+            cppFlags.add("-I${rtAudio}".toString())
+            cppFlags.add("-I${ooura}".toString())
+            cppFlags.add("-I${nyquist}/include".toString())
+            cppFlags.add("-I${labSoundThirdParty}".toString())
+
+            ldLibs.addAll(["OpenSLES", "log", "android", "m"])
+        }
+
+        buildTypes {
+            debug {
+            }
+
+            release {
+                ndk {
+                    cppFlags.addAll(labSoundReleaseCppFlags)
+                    CFlags.addAll(labSoundReleaseCppFlags)
+                }
+            }
+        }
+
+        sources {
+            main {
+                jni {
+                    exportedHeaders {
+                        srcDir labSoundInclude
+                    }
+
+                    source {
+                        srcDir labSoundSrc
+                        srcDir labSoundSrcExtended
+                        srcDir kissFftSrc
+                        srcDir json11Src
+                        srcDir rtAudioSrc
+                        srcDir oouraSrc
+
+                        exclude "**/mac/**.cpp"
+                        exclude "**/win/**.cpp"
+                    }
+
+                    dependencies {
+                        project ':libnyquist' linkage 'static'
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,151 @@
+apply plugin: "com.android.model.native"
+
+def external = file("${projectDir}/external")
+def labSoundRoot = file("${projectDir}/../../")
+def labSoundThirdParty = file("${labSoundRoot}/third_party")
+def libNyquistRoot =  file("${labSoundThirdParty}/libnyquist")
+def libNyquistSrc = file("${libNyquistRoot}/src")
+def libNyquistInclude = file("${libNyquistRoot}/include")
+def libNyquistThirdParty = file("${libNyquistRoot}/third_party")
+def flac = file("${libNyquistThirdParty}/flac")
+def flacSrc = file("${flac}/src")
+def flacSrcInclude = file("${flacSrc}/include")
+
+def libModPlugSrc = file("${libNyquistThirdParty}/libmodplug/src")
+def musepack = file("${libNyquistThirdParty}/musepack")
+def musepackInclude = file("${musepack}/include")
+def libOgg = file("${libNyquistThirdParty}/libOgg")
+def libOggInclude = file("${libOgg}/include")
+def libOggExternalInclude = file("${external}/libogg/include")
+def libVorbis = file("${libNyquistThirdParty}/libvorbis")
+def libVorbisSrc = file("${libVorbis}/src")
+def libVorbisInclude = file("${libVorbis}/include")
+def opus = file("${libNyquistThirdParty}/opus")
+def opusCelt = file("${opus}/celt")
+def opusSilk = file("${opus}/silk")
+def opusSilkFixed = file("${opusSilk}/fixed")
+def opusSilkFloat = file("${opusSilk}/float")
+def opusSilkArm = file("${opusSilk}/arm")
+def opusSilkExternal = file("${external}/opus/silk")
+def opusFile = file("${opus}/opusfile")
+def opusFileSrc = file("${opusFile}/src")
+def opusFileSrcInclude = file("${opusFileSrc}/include")
+def opusFileInclude = file("${opusFile}/include")
+def libOpus = file("${opus}/libopus")
+def libOpusInclude = file("${libOpus}/include")
+def wavPack = file("${libNyquistThirdParty}/wavpack")
+def wavPackSrc = file("${wavPack}/src")
+def wavPackInclude = file("${wavPack}/include")
+def rtAudio = file("${libNyquistThirdParty}/rtaudio")
+
+def libNyquistCppFlags = [
+        "-std=c++11",
+        "-fexceptions",
+        "-frtti",
+        "-ffast-math",
+        "-mfpu=neon",
+        "-DARM_NEON_ENABLE",
+        "-DHAVE_LROUND"
+]
+
+def libNyquistCFlags = [
+        "-mfpu=neon",
+        "-DARM_NEON_ENABLE",
+        "-DHAVE_LROUND",
+        "-DHAVE_SYS_PARAM_H"
+]
+
+def libNyquistReleaseCppFlags = [
+        "-O3",
+        "-DNDEBUG"
+]
+
+model {
+    android {
+        compileSdkVersion buildConfig.compileSdkVersion
+        buildToolsVersion buildConfig.buildToolsVersion
+
+        ndk {
+            platformVersion ndkBuildConfig.platformVersion
+            moduleName 'libNyquist'
+            toolchain ndkBuildConfig.toolchain
+            stl ndkBuildConfig.stl
+            abiFilters.addAll(ndkBuildConfig.abiFilters)
+
+            cppFlags.addAll(libNyquistCppFlags)
+            CFlags.addAll(libNyquistCFlags)
+
+            cppFlags.add("-I${libNyquistSrc}".toString())
+            cppFlags.add("-I${libNyquistInclude}/libnyquist".toString())
+            cppFlags.add("-I${libNyquistThirdParty}".toString())
+
+            CFlags.add("-I${libNyquistSrc}".toString())
+            CFlags.add("-I${libNyquistInclude}".toString())
+            CFlags.add("-I${libNyquistThirdParty}".toString())
+
+            CFlags.add("-I${flac}".toString())
+            CFlags.add("-I${flacSrcInclude}".toString())
+
+            CFlags.add("-I${musepackInclude}".toString())
+            cppFlags.add("-I${musepackInclude}".toString())
+
+            CFlags.add("-I${libOggExternalInclude}".toString())
+            cppFlags.add("-I${libOggExternalInclude}".toString())
+            CFlags.add("-I${libOggInclude}".toString())
+            cppFlags.add("-I${libOggInclude}".toString())
+
+            CFlags.add("-I${libVorbisSrc}".toString())
+            CFlags.add("-I${libVorbisInclude}".toString())
+
+            cppFlags.add("-I${opus}".toString())
+            CFlags.add("-I${opusCelt}".toString())
+            CFlags.add("-I${opusSilk}".toString())
+            CFlags.add("-I${opusSilkFixed}".toString())
+            CFlags.add("-I${opusSilkFloat}".toString())
+            CFlags.add("-I${opusSilkArm}".toString())
+            CFlags.add("-I${opusFileInclude}".toString())
+            CFlags.add("-I${opusFileInclude}".toString())
+            CFlags.add("-I${opusFileSrcInclude}".toString())
+            CFlags.add("-I${libOpusInclude}".toString())
+            cppFlags.add("-I${libOpusInclude}".toString())
+
+            CFlags.add("-I${wavPackInclude}".toString())
+            cppFlags.add("-I${wavPackInclude}".toString())
+
+            cppFlags.add("-I${rtAudio}".toString())
+
+            ldLibs.addAll(["android"])
+        }
+
+        buildTypes {
+            debug {
+            }
+
+            release {
+                ndk {
+                    cppFlags.addAll(libNyquistReleaseCppFlags)
+                    CFlags.addAll(libNyquistReleaseCppFlags)
+                }
+            }
+        }
+
+        sources {
+            main {
+                jni {
+                    exportedHeaders {
+                        srcDir libNyquistInclude
+                    }
+
+                    source {
+                        srcDir libNyquistSrc
+                        srcDir flacSrc
+                        srcDir rtAudio
+
+                        exclude "**/win_*.c"
+                        exclude "**/FlacDependencies.c"
+                    }
+                }
+            }
+        }
+    }
+}

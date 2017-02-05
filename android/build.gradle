@@ -1,0 +1,32 @@
+buildscript {
+    repositories {
+        jcenter()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:2.3.0-beta2'
+        classpath "com.android.tools.build:gradle-experimental:0.9.0-beta2"
+    }
+}
+
+allprojects {
+    repositories {
+        jcenter()
+    }
+
+    ext {
+        buildConfig = [
+                compileSdkVersion: 25,
+                buildToolsVersion: "25.0.0",
+                minSdkVersion: 9,
+                targetSdkVersion: 21,
+        ]
+
+        ndkBuildConfig = [
+                platformVersion: 9,
+                toolchain: 'clang',
+                stl: 'c++_shared',
+                abiFilters: ["armeabi-v7a", "x86"]
+        ]
+    }
+}
