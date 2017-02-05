@@ -75,12 +75,14 @@ static void stopQueues(AudioDestinationAndroid::Internals* internals)
         SLPlayItf outputPlayInterface;
         (*internals->outputBufferQueue)->GetInterface(internals->outputBufferQueue, SL_IID_PLAY, &outputPlayInterface);
         (*outputPlayInterface)->SetPlayState(outputPlayInterface, SL_PLAYSTATE_STOPPED);
+        usleep(50000);
     }
     if (internals->inputBufferQueue)
     {
         SLRecordItf recordInterface;
         (*internals->inputBufferQueue)->GetInterface(internals->inputBufferQueue, SL_IID_RECORD, &recordInterface);
         (*recordInterface)->SetRecordState(recordInterface, SL_RECORDSTATE_STOPPED);
+        usleep(50000);
     }
 }
 
@@ -343,7 +345,6 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
 AudioDestinationAndroid::~AudioDestinationAndroid()
 {
     stopQueues(m_internals);
-    usleep(200000);
     if (m_internals->outputBufferQueue)
     {
         (*m_internals->outputBufferQueue)->Destroy(m_internals->outputBufferQueue);
