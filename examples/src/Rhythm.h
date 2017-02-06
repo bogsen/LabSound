@@ -5,15 +5,15 @@
 
 struct RhythmApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         
         auto context = lab::MakeAudioContext();
         float sampleRate = context->sampleRate();
         
-        SoundBuffer kick("samples/kick.wav", sampleRate);
-        SoundBuffer hihat("samples/hihat.wav", sampleRate);
-        SoundBuffer snare("samples/snare.wav", sampleRate);
+        SoundBuffer kick = soundBufferFactory.Create("samples/kick.wav", sampleRate);
+        SoundBuffer hihat = soundBufferFactory.Create("samples/hihat.wav", sampleRate);
+        SoundBuffer snare = soundBufferFactory.Create("samples/snare.wav", sampleRate);
         
         // store the notes to keep them around long enough to play
         std::vector<std::shared_ptr<AudioNode>> notes;

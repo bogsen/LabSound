@@ -5,14 +5,15 @@
 
 struct ConvolutionReverbApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         
-        SoundBuffer impulseResponse("impulse/cardiod-rear-levelled.wav", context->sampleRate());
+        SoundBuffer impulseResponse = soundBufferFactory.Create(
+                "impulse/cardiod-rear-levelled.wav", context->sampleRate());
         //SoundBuffer impulseResponse("impulse/filter-telephone.wav", context->sampleRate()); // alternate
         
-        SoundBuffer sample("samples/voice.ogg", context->sampleRate());
+        SoundBuffer sample = soundBufferFactory.Create("samples/voice.ogg", context->sampleRate());
         std::shared_ptr<ConvolverNode> convolve;
         std::shared_ptr<GainNode> wetGain;
         std::shared_ptr<GainNode> dryGain;

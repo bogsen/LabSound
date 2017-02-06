@@ -10,13 +10,13 @@ struct MicrophoneDalekApp : public LabSoundExampleApp
     
     // Send live audio to a Dalek filter, constructed according to
     // the recipe at http://webaudio.prototyping.bbc.co.uk/ring-modulator/
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         float sampleRate = context->sampleRate();
         
 #ifndef USE_LIVE
-        SoundBuffer sample("samples/voice.ogg", sampleRate);
+        SoundBuffer sample = soundBufferFactory.Create("samples/voice.ogg", sampleRate);
 #endif
         
         std::shared_ptr<AudioHardwareSourceNode> input;

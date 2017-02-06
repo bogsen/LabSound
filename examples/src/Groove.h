@@ -147,7 +147,7 @@ FastHighpass fasthp_c[2];
 
 struct GrooveApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         

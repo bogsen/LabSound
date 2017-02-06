@@ -19,7 +19,7 @@ std::string PrintCurrentDirectory()
 struct ValidationApp : public LabSoundExampleApp
 {
 
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         
         std::array<int, 8> majorScale = {0, 2, 4, 5, 7, 9, 11, 12};
@@ -51,7 +51,7 @@ struct ValidationApp : public LabSoundExampleApp
 
             pingping->output->connect(ac, context->destination().get(), 0, 0);
 
-            SoundBuffer beat("samples/kick.wav", context->sampleRate());
+            SoundBuffer beat = soundBufferFactory.Create("samples/kick.wav", context->sampleRate());
             beatNode = beat.play(r, pingping->input, 0.0f);
         }
      

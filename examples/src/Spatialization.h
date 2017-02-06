@@ -6,12 +6,13 @@
 // Illustrates 3d sound spatialization and doppler shift
 struct SpatializationApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         auto ac = context.get();
         
-        SoundBuffer train("samples/trainrolling.wav", context->sampleRate());
+        SoundBuffer train = soundBufferFactory.Create(
+                "samples/trainrolling.wav", context->sampleRate());
         std::shared_ptr<OscillatorNode> osc; 
 
         // Note the need to specify an asset search path if this node will be

@@ -21,7 +21,8 @@ def labSoundCppFlags = [
         "-ffast-math",
         "-mfpu=neon",
         "-DARM_NEON_ENABLE",
-        "-DWTF_USE_WEBAUDIO_KISSFFT"
+        "-DWTF_USE_WEBAUDIO_KISSFFT",
+        "-DHAVE_ARM_NEON_INTRINSICS"
 ]
 
 def labSoundReleaseCppFlags = [

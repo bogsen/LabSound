@@ -26,7 +26,7 @@ public:
 private:
     AudioIOCallback& m_callback;
     AudioBus m_renderBus;
-    std::unique_ptr<AudioFloatArray> m_renderBuffer;
+    AudioBus m_inputBus;
 
     float m_sampleRate;
     bool m_isPlaying;

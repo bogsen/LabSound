@@ -6,12 +6,13 @@
 // Illustrates the use of simple equal-power stereo panning
 struct StereoPanningApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         auto ac = context.get();
         
-        SoundBuffer train("samples/trainrolling.wav", context->sampleRate());
+        SoundBuffer train = soundBufferFactory.Create(
+                "samples/trainrolling.wav", context->sampleRate());
         auto stereoPanner = std::make_shared<StereoPannerNode>(context->sampleRate());
         
         std::shared_ptr<AudioBufferSourceNode> trainNode;

@@ -5,12 +5,13 @@
 
 struct MicrophoneReverbApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         auto ac = context.get();
         
-        SoundBuffer ir("impulse/cardiod-rear-levelled.wav", context->sampleRate());
+        SoundBuffer ir = soundBufferFactory.Create(
+                "impulse/cardiod-rear-levelled.wav", context->sampleRate());
         
         std::shared_ptr<AudioHardwareSourceNode> input;
         std::shared_ptr<ConvolverNode> convolve;

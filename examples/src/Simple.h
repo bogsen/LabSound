@@ -5,14 +5,14 @@
 
 struct SimpleApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         
         auto ac = context.get();
         
         std::shared_ptr<OscillatorNode> oscillator;
-        SoundBuffer tonbi("samples/tonbi.wav", context->sampleRate());
+        SoundBuffer tonbi = soundBufferFactory.Create("samples/tonbi.wav", context->sampleRate());
         std::shared_ptr<GainNode> gain;
         std::shared_ptr<AudioBufferSourceNode> tonbiSound;
 

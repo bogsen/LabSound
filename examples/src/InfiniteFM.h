@@ -30,7 +30,7 @@
 // it is because LabSound oscillators are wavetable generated?
 struct InfiniteFMApp : public LabSoundExampleApp
 {
-    void PlayExample()
+    void PlayExample(const SoundBufferFactory& soundBufferFactory)
     {
         auto context = lab::MakeAudioContext();
         

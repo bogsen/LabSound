@@ -123,7 +123,7 @@ static void AudioDestinationAndroid_InputCallback(SLAndroidSimpleBufferQueueItf 
         }
     }
 
-    (*caller)->Enqueue(caller, buffer, (SLuint32)internals->bufferFrames * sizeof(short));
+    (*caller)->Enqueue(caller, buffer, (SLuint32)internals->bufferFrames * sizeof(short) * 2);
 }
 
 // This is called periodically by the output audio queue. Audio for the user should be provided here.
@@ -137,7 +137,7 @@ static void AudioDestinationAndroid_OutputCallback(SLAndroidSimpleBufferQueueItf
     {
         buffersAvailable = internals->numBuffers - (internals->readBufferIndex - internals->writeBufferIndex);
     }
-    short int* output = internals->fifobuffer + internals->readBufferIndex * internals->bufferStep;
+    short int * output = internals->fifobuffer + internals->readBufferIndex * internals->bufferStep;
 
     if (internals->hasInput)
     { // If audio input is enabled.
@@ -145,7 +145,7 @@ static void AudioDestinationAndroid_OutputCallback(SLAndroidSimpleBufferQueueItf
         { // if we have enough audio input available
             if (!destination->render(output, static_cast<size_t>(internals->bufferFrames)))
             {
-                memset(output, 0, (size_t)internals->bufferFrames * sizeof(short));
+                memset(output, 0, (size_t)internals->bufferFrames * sizeof(short) * 2);
                 internals->silenceSamples += internals->bufferFrames;
             }
             else
@@ -160,10 +160,10 @@ static void AudioDestinationAndroid_OutputCallback(SLAndroidSimpleBufferQueueItf
     }
     else
     { // If audio input is not enabled.
-        short int *audioToGenerate = internals->fifobuffer + internals->writeBufferIndex * internals->bufferStep;
+        short int * audioToGenerate = internals->fifobuffer + internals->writeBufferIndex * internals->bufferStep;
         if (!destination->render(audioToGenerate, static_cast<size_t>(internals->bufferFrames)))
         {
-            memset(audioToGenerate, 0, (size_t)internals->bufferFrames * sizeof(short));
+            memset(audioToGenerate, 0, (size_t)internals->bufferFrames * sizeof(short) * 2);
             internals->silenceSamples += internals->bufferFrames;
         }
         else
@@ -196,17 +196,17 @@ static void AudioDestinationAndroid_OutputCallback(SLAndroidSimpleBufferQueueItf
         }
     }
 
-    (*caller)->Enqueue(caller, output ? output : internals->silence, (SLuint32)internals->bufferFrames * sizeof(short));
+    (*caller)->Enqueue(caller, output ? output : internals->silence, (SLuint32)internals->bufferFrames * sizeof(short) * 2);
 }
 
 AudioDestination* AudioDestination::MakePlatformAudioDestination(AudioIOCallback& callback, unsigned numberOfOutputChannels, float sampleRate)
 {
-    return new AudioDestinationAndroid(callback, sampleRate, kProcessingSizeInFrames, false, true);
+    return new AudioDestinationAndroid(callback, sampleRate, kProcessingSizeInFrames, true, true);
 }
 
 float AudioDestination::hardwareSampleRate()
 {
-    return 44100;
+    return 48000;
 }
 
 unsigned long AudioDestination::maxChannelCount()
@@ -217,11 +217,10 @@ unsigned long AudioDestination::maxChannelCount()
 AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, float sampleRate, size_t bufferFrames, bool enableInput, bool enableOutput)
         : m_sampleRate(sampleRate)
         , m_callback(callback)
-        , m_renderBus(2, kProcessingSizeInFrames, false)
+        , m_renderBus(2, bufferFrames, true)
+        , m_inputBus(2, bufferFrames, true)
         , m_isPlaying(false)
 {
-    m_renderBuffer.reset(new AudioFloatArray(bufferFrames * 2));
-
     static const SLboolean requireds[2] = { SL_BOOLEAN_TRUE, SL_BOOLEAN_FALSE };
 
     m_internals = new Internals();
@@ -229,8 +228,8 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
     m_internals->clientdata = this;
     m_internals->sampleRate = static_cast<int>(sampleRate);
     m_internals->bufferFrames = bufferFrames;
-    m_internals->silence = (short int *)malloc((size_t)bufferFrames * sizeof(short));
-    memset(m_internals->silence, 0, (size_t)bufferFrames * sizeof(short));
+    m_internals->silence = (short int *)malloc((size_t)bufferFrames * sizeof(short) * 2);
+    memset(m_internals->silence, 0, (size_t)bufferFrames * sizeof(short) * 2);
     m_internals->latencySamples = bufferFrames * 2;
 
     m_internals->numBuffers = (m_internals->latencySamples / bufferFrames) * 2;
@@ -285,12 +284,12 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
 
     if (enableOutput)
     {
-        SLDataLocator_AndroidSimpleBufferQueue outputLocator = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2 };
+        SLDataLocator_AndroidSimpleBufferQueue outputLocator = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 1 };
         SLDataFormat_PCM outputFormat = { SL_DATAFORMAT_PCM, 2, (SLuint32)sampleRate * 1000, SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16, SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT, SL_BYTEORDER_LITTLEENDIAN };
         SLDataSource outputSource = { &outputLocator, &outputFormat };
-        const SLInterfaceID outputInterfaces[3] = { SL_IID_BUFFERQUEUE, SL_IID_ANDROIDCONFIGURATION, SL_IID_PLAYBACKRATE };
+        const SLInterfaceID outputInterfaces[3] = { SL_IID_BUFFERQUEUE, SL_IID_ANDROIDCONFIGURATION };
         SLDataSink outputSink = { &outputMixLocator, NULL };
-        result = (*openSLEngineInterface)->CreateAudioPlayer(openSLEngineInterface, &m_internals->outputBufferQueue, &outputSource, &outputSink, 3, outputInterfaces, requireds);
+        result = (*openSLEngineInterface)->CreateAudioPlayer(openSLEngineInterface, &m_internals->outputBufferQueue, &outputSource, &outputSink, 2, outputInterfaces, requireds);
         assert(SL_RESULT_SUCCESS == result);
 
         // Configure the stream type.
@@ -304,23 +303,6 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
         result = (*m_internals->outputBufferQueue)->Realize(m_internals->outputBufferQueue, SL_BOOLEAN_FALSE);
         assert(SL_RESULT_SUCCESS == result);
 
-        SLPlaybackRateItf playerPlaybackRate;
-        result = (*m_internals->outputBufferQueue)->GetInterface(m_internals->outputBufferQueue, SL_IID_PLAYBACKRATE, &playerPlaybackRate);
-        assert(SL_RESULT_SUCCESS == result);
-        SLpermille defaultRate;
-        result = (*playerPlaybackRate)->GetRate(playerPlaybackRate, &defaultRate);
-        assert(SL_RESULT_SUCCESS == result);
-        SLuint32 defaultProperties;
-        result = (*playerPlaybackRate)->GetProperties(playerPlaybackRate, &defaultProperties);
-        assert(SL_RESULT_SUCCESS == result);
-
-        SLpermille halfRate = 1000 / 2;
-        if (defaultRate != halfRate)
-        {
-            result = (*playerPlaybackRate)->SetRate(playerPlaybackRate, halfRate);
-            assert(SL_RESULT_SUCCESS == result);
-        }
-
         m_internals->hasOutput = true;
     }
 
@@ -328,7 +310,7 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
         result = (*m_internals->inputBufferQueue)->GetInterface(m_internals->inputBufferQueue, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &m_internals->inputBufferQueueInterface);
         assert(SL_RESULT_SUCCESS == result);
         result = (*m_internals->inputBufferQueueInterface)->RegisterCallback(m_internals->inputBufferQueueInterface, AudioDestinationAndroid_InputCallback, m_internals);
-        result = (*m_internals->inputBufferQueueInterface)->Enqueue(m_internals->inputBufferQueueInterface, m_internals->fifobuffer, (SLuint32)bufferFrames * sizeof(short));
+        result = (*m_internals->inputBufferQueueInterface)->Enqueue(m_internals->inputBufferQueueInterface, m_internals->fifobuffer, (SLuint32)bufferFrames * sizeof(short) * 2);
         assert(SL_RESULT_SUCCESS == result);
     }
 
@@ -337,7 +319,7 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
         assert(SL_RESULT_SUCCESS == result);
         result = (*m_internals->outputBufferQueueInterface)->RegisterCallback(m_internals->outputBufferQueueInterface, AudioDestinationAndroid_OutputCallback, m_internals);
         assert(SL_RESULT_SUCCESS == result);
-        result = (*m_internals->outputBufferQueueInterface)->Enqueue(m_internals->outputBufferQueueInterface, m_internals->fifobuffer, (SLuint32)bufferFrames * sizeof(short));
+        result = (*m_internals->outputBufferQueueInterface)->Enqueue(m_internals->outputBufferQueueInterface, m_internals->fifobuffer, (SLuint32)bufferFrames * sizeof(short) * 2);
         assert(SL_RESULT_SUCCESS == result);
     }
 }
@@ -372,40 +354,41 @@ void AudioDestinationAndroid::stop()
     stopQueues(m_internals);
 }
 
-bool AudioDestinationAndroid::render(short int* audioIO, size_t numberOfFrames)
+bool AudioDestinationAndroid::render(short int * audioIO, size_t numberOfFrames)
 {
     if (!m_isPlaying)
     {
         return false;
     }
 
-    if (m_renderBus.isFirstTime())
+    size_t inputs = m_inputBus.numberOfChannels();
+    for (size_t i = 0; i < inputs; ++i)
     {
-        m_renderBus.setChannelMemory(0, m_renderBuffer->data(), numberOfFrames);
-        m_renderBus.setChannelMemory(1, m_renderBuffer->data() + (numberOfFrames), numberOfFrames);
+        AudioChannel *channel = m_inputBus.channel(i);
+        float *inputBuffer = channel->mutableData();
+        for (size_t j = 0; j < numberOfFrames; ++j)
+        {
+            inputBuffer[j] = int16_to_float32(audioIO[j * inputs + i]);
+        }
     }
 
-    m_callback.render(0, &m_renderBus, numberOfFrames);
+    m_callback.render(&m_inputBus, &m_renderBus, numberOfFrames);
 
-    // Clamp values at 0db (i.e., [-1.0, 1.0])
-    for (size_t i = 0; i < m_renderBus.numberOfChannels(); ++i)
+    size_t outputs =  m_renderBus.numberOfChannels();
+    for (size_t i = 0; i < outputs; ++i)
     {
         AudioChannel* channel = m_renderBus.channel(i);
         VectorMath::vclip(
                 channel->data(), 1, &kLowThreshold, &kHighThreshold,
                 channel->mutableData(), 1, numberOfFrames);
+        for (size_t j = 0; j < numberOfFrames; ++j)
+        {
+            audioIO[j * outputs + i] =
+                    (short int) lroundf(float32_to_int16(channel->data()[j]));
+        }
     }
-
-    nqr::ConvertFromFloat32(
-            (uint8_t *) audioIO,
-            m_renderBuffer->data(),
-            numberOfFrames,
-            nqr::PCMFormat::PCM_16,
-            nqr::DitherType::DITHER_NONE
-    );
 
     return true;
 }
-
 
 }

@@ -3,6 +3,7 @@ apply plugin: 'com.android.model.library'
 def labSoundRoot = file("${projectDir}/../../")
 def jniSourcesPath = "${projectDir}/src/main/jni"
 def labSoundExamplesSrc = "${labSoundRoot}/examples/src"
+def labSoundAssets = "${labSoundRoot}/assets"
 
 def labSoundExamplesCppFlags = [
         "-std=c++11",
@@ -55,7 +56,6 @@ model {
 
         sources {
             main {
-
                 jni {
                     source {
                         srcDir jniSourcesPath
@@ -66,6 +66,12 @@ model {
 
                     dependencies {
                         project ':labsound' linkage 'shared'
+                    }
+                }
+
+                assets {
+                    source {
+                        srcDir labSoundAssets
                     }
                 }
             }
