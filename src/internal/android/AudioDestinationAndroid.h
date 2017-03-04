@@ -9,8 +9,13 @@
 #include "internal/AudioDestination.h"
 
 namespace lab {
+
 class AudioDestinationAndroid : public AudioDestination {
+
 public:
+
+    struct Internals; // LabSound
+
     AudioDestinationAndroid(AudioIOCallback&, float sampleRate, size_t bufferFrames, bool enableInput, bool enableOutput);
     virtual ~AudioDestinationAndroid();
 
@@ -22,8 +27,8 @@ public:
 
     bool render(short int* audioIO, size_t numberOfFrames);
 
-    struct Internals; // LabSound
 private:
+
     AudioIOCallback& m_callback;
     AudioBus m_renderBus;
     AudioBus m_inputBus;
@@ -32,6 +37,7 @@ private:
     bool m_isPlaying;
 
     Internals* m_internals; // LabSound
+
 };
 }
 

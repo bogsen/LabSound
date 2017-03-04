@@ -25,7 +25,7 @@ const float kHighThreshold = 1;
 
 struct AudioDestinationAndroid::Internals
 {
-    void * clientdata;
+    void * userData;
 
     SLObjectItf openSLEngine;
     SLObjectItf outputMix;
@@ -34,7 +34,7 @@ struct AudioDestinationAndroid::Internals
     SLAndroidSimpleBufferQueueItf outputBufferQueueInterface;
     SLAndroidSimpleBufferQueueItf inputBufferQueueInterface;
 
-    short int * fifobuffer;
+    short int * fifoBuffer;
     short int * silence;
 
     int sampleRate;
@@ -90,9 +90,9 @@ static void stopQueues(AudioDestinationAndroid::Internals* internals)
 static void AudioDestinationAndroid_InputCallback(SLAndroidSimpleBufferQueueItf caller, void *pContext)
 {
     AudioDestinationAndroid::Internals* internals = static_cast<AudioDestinationAndroid::Internals*>(pContext);
-    AudioDestinationAndroid* destination = static_cast<AudioDestinationAndroid*>(internals->clientdata);
+    AudioDestinationAndroid* destination = static_cast<AudioDestinationAndroid*>(internals->userData);
 
-    short int *buffer = internals->fifobuffer + internals->writeBufferIndex * internals->bufferStep;
+    short int *buffer = internals->fifoBuffer + internals->writeBufferIndex * internals->bufferStep;
     if (internals->writeBufferIndex < internals->numBuffers - 1)
     {
         internals->writeBufferIndex++;
@@ -111,7 +111,7 @@ static void AudioDestinationAndroid_InputCallback(SLAndroidSimpleBufferQueueItf 
         }
         if (buffersAvailable * internals->bufferFrames >= internals->latencySamples)
         { // if we have enough audio input available
-            destination->render(internals->fifobuffer + internals->readBufferIndex * internals->bufferStep, static_cast<size_t>(internals->bufferFrames));
+            destination->render(internals->fifoBuffer + internals->readBufferIndex * internals->bufferStep, static_cast<size_t>(internals->bufferFrames));
             if (internals->readBufferIndex < internals->numBuffers - 1)
             {
                 internals->readBufferIndex++;
@@ -130,14 +130,14 @@ static void AudioDestinationAndroid_InputCallback(SLAndroidSimpleBufferQueueItf 
 static void AudioDestinationAndroid_OutputCallback(SLAndroidSimpleBufferQueueItf caller, void *pContext)
 {
     AudioDestinationAndroid::Internals* internals = static_cast<AudioDestinationAndroid::Internals*>(pContext);
-    AudioDestinationAndroid* destination = static_cast<AudioDestinationAndroid*>(internals->clientdata);
+    AudioDestinationAndroid* destination = static_cast<AudioDestinationAndroid*>(internals->userData);
 
     int buffersAvailable = internals->writeBufferIndex - internals->readBufferIndex;
     if (buffersAvailable < 0)
     {
         buffersAvailable = internals->numBuffers - (internals->readBufferIndex - internals->writeBufferIndex);
     }
-    short int * output = internals->fifobuffer + internals->readBufferIndex * internals->bufferStep;
+    short int * output = internals->fifoBuffer + internals->readBufferIndex * internals->bufferStep;
 
     if (internals->hasInput)
     { // If audio input is enabled.
@@ -160,7 +160,7 @@ static void AudioDestinationAndroid_OutputCallback(SLAndroidSimpleBufferQueueItf
     }
     else
     { // If audio input is not enabled.
-        short int * audioToGenerate = internals->fifobuffer + internals->writeBufferIndex * internals->bufferStep;
+        short int * audioToGenerate = internals->fifoBuffer + internals->writeBufferIndex * internals->bufferStep;
         if (!destination->render(audioToGenerate, static_cast<size_t>(internals->bufferFrames)))
         {
             memset(audioToGenerate, 0, (size_t)internals->bufferFrames * sizeof(short) * 2);
@@ -225,7 +225,7 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
 
     m_internals = new Internals();
     memset(m_internals, 0, sizeof(Internals));
-    m_internals->clientdata = this;
+    m_internals->userData = this;
     m_internals->sampleRate = static_cast<int>(sampleRate);
     m_internals->bufferFrames = bufferFrames;
     m_internals->silence = (short int *)malloc((size_t)bufferFrames * sizeof(short) * 2);
@@ -238,8 +238,8 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
     }
     m_internals->bufferStep = (bufferFrames + 64) * 2;
     size_t fifoBufferSizeBytes = m_internals->numBuffers * m_internals->bufferStep * sizeof(short);
-    m_internals->fifobuffer = (short int *)malloc(fifoBufferSizeBytes);
-    memset(m_internals->fifobuffer, 0, fifoBufferSizeBytes);
+    m_internals->fifoBuffer = (short int *)malloc(fifoBufferSizeBytes);
+    memset(m_internals->fifoBuffer, 0, fifoBufferSizeBytes);
 
     SLresult result;
 
@@ -310,7 +310,7 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
         result = (*m_internals->inputBufferQueue)->GetInterface(m_internals->inputBufferQueue, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &m_internals->inputBufferQueueInterface);
         assert(SL_RESULT_SUCCESS == result);
         result = (*m_internals->inputBufferQueueInterface)->RegisterCallback(m_internals->inputBufferQueueInterface, AudioDestinationAndroid_InputCallback, m_internals);
-        result = (*m_internals->inputBufferQueueInterface)->Enqueue(m_internals->inputBufferQueueInterface, m_internals->fifobuffer, (SLuint32)bufferFrames * sizeof(short) * 2);
+        result = (*m_internals->inputBufferQueueInterface)->Enqueue(m_internals->inputBufferQueueInterface, m_internals->fifoBuffer, (SLuint32)bufferFrames * sizeof(short) * 2);
         assert(SL_RESULT_SUCCESS == result);
     }
 
@@ -319,7 +319,7 @@ AudioDestinationAndroid::AudioDestinationAndroid(AudioIOCallback& callback, floa
         assert(SL_RESULT_SUCCESS == result);
         result = (*m_internals->outputBufferQueueInterface)->RegisterCallback(m_internals->outputBufferQueueInterface, AudioDestinationAndroid_OutputCallback, m_internals);
         assert(SL_RESULT_SUCCESS == result);
-        result = (*m_internals->outputBufferQueueInterface)->Enqueue(m_internals->outputBufferQueueInterface, m_internals->fifobuffer, (SLuint32)bufferFrames * sizeof(short) * 2);
+        result = (*m_internals->outputBufferQueueInterface)->Enqueue(m_internals->outputBufferQueueInterface, m_internals->fifoBuffer, (SLuint32)bufferFrames * sizeof(short) * 2);
         assert(SL_RESULT_SUCCESS == result);
     }
 }
@@ -337,7 +337,7 @@ AudioDestinationAndroid::~AudioDestinationAndroid()
     }
     (*m_internals->outputMix)->Destroy(m_internals->outputMix);
     (*m_internals->openSLEngine)->Destroy(m_internals->openSLEngine);
-    free(m_internals->fifobuffer);
+    free(m_internals->fifoBuffer);
     free(m_internals->silence);
     delete m_internals;
 }

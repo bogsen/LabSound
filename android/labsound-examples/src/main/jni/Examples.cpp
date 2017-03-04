@@ -46,14 +46,14 @@ LabSoundExampleApp * g_runnbleExamples[] = {
         // Disabled, requires loading ogg from disk,
         // see https://github.com/ddiakopoulos/libnyquist/blob/9130de77b745d4d6f1ab1dfa447420efa1e16980/src/VorbisDecoder.cpp#L31
         // &g_convolutionReverbExample,
-        &g_microphoneLoopback,
+//        &g_microphoneLoopback,
 //        &g_microphoneReverb,
         &g_peakCompressor,
         &g_rhythm,
         &g_rhythmAndFilters,
 //        // Disabled, loads hrtf files from disk internally
 //        // &g_spatialization,
-        &g_stereoPanning,
+//        &g_stereoPanning,
 //        &g_redAlert,
 //        &g_tremolo,
 //        &g_grooveExample
