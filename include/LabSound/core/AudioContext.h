@@ -16,11 +16,11 @@
 #include <thread>
 #include <mutex>
 #include <string>
+#include <condition_variable>
 
 namespace lab
 {
 
-class AudioBuffer;
 class AudioDestinationNode;
 class AudioListener;
 class AudioNode;
@@ -30,20 +30,6 @@ class AudioNodeInput;
 class AudioNodeOutput;
 class ContextGraphLock;
 class ContextRenderLock;
-    
-template<class Input, class Output>
-struct PendingConnection
-{
-    PendingConnection(std::shared_ptr<Input> from,
-                      std::shared_ptr<Output> to,
-                      bool connect) : from(from), to(to), connect(connect) {}
-    bool connect; // true: connect; false: disconnect
-    std::shared_ptr<Input> from;
-    std::shared_ptr<Output> to;
-};
-
-// @tofix - refactor such that this factory function doesn't need to exist
-std::shared_ptr<AudioHardwareSourceNode> MakeHardwareSourceNode(ContextRenderLock & r);
 
 class AudioContext
 {
@@ -60,23 +46,14 @@ public:
     std::string m_graphLocker;
     std::string m_renderLocker;
 
-    // Realtime Context
-    AudioContext();
-
-    // Offline (non-realtime) Context
-    AudioContext(unsigned numberOfChannels, size_t numberOfFrames, float sampleRate);
-
+    AudioContext(bool isOffline);
     ~AudioContext();
 
     bool isInitialized() const;
 
-    // Eexternal users shouldn't use this; it should be called by LabSound::MakeAudioContext()
+    // Eexternal users shouldn't use this; it should be called by LabSound::MakeRealtimeAudioContext()
     // It *is* harmless to call it though, it's just not necessary.
     void lazyInitialize();
-
-    void update(ContextGraphLock & g);
-
-    void stop(ContextGraphLock & g);
 
     void setDestinationNode(std::shared_ptr<AudioDestinationNode> node);
 
@@ -90,19 +67,15 @@ public:
 
     float sampleRate() const;
 
-    std::shared_ptr<AudioListener> listener();
+    AudioListener & listener();
 
     unsigned long activeSourceCount() const;
 
     void incrementActiveSourceCount();
     void decrementActiveSourceCount();
 
-    void handlePreRenderTasks(ContextRenderLock &); // Called at the START of each render quantum.
-    void handlePostRenderTasks(ContextRenderLock &); // Called at the END of each render quantum.
-
-    // We schedule deletion of all marked nodes at the end of each realtime render quantum.
-    void markForDeletion(ContextRenderLock & r, AudioNode *);
-    void deleteMarkedNodes();
+    void handlePreRenderTasks(ContextRenderLock &); // Called at the start of each render quantum.
+    void handlePostRenderTasks(ContextRenderLock &); // Called at the end of each render quantum.
 
     // AudioContext can pull node(s) at the end of each render quantum even when they are not connected to any downstream nodes.
     // These two methods are called by the nodes who want to add/remove themselves into/from the automatic pull lists.
@@ -117,82 +90,92 @@ public:
     void incrementConnectionCount();
     
     unsigned connectionCount() const { return m_connectionCount;}
+    
+    void connect(std::shared_ptr<AudioNode> destination, std::shared_ptr<AudioNode> source, uint32_t destIdx = 0, uint32_t srcIdx = 0);
+    void disconnect(std::shared_ptr<AudioNode> destination, std::shared_ptr<AudioNode> source, uint32_t destIdx = 0, uint32_t srcidx = 0);
 
-    void connect(std::shared_ptr<AudioNode> from, std::shared_ptr<AudioNode> to);
-    void connect(std::shared_ptr<AudioNodeInput> fromInput, std::shared_ptr<AudioNodeOutput> toOutput);
+    void connectParam(std::shared_ptr<AudioParam> param, std::shared_ptr<AudioNode> driver, uint32_t index);
 
-    void disconnect(std::shared_ptr<AudioNode> from, std::shared_ptr<AudioNode> to);
-    void disconnect(std::shared_ptr<AudioNode> from);
-    void disconnect(std::shared_ptr<AudioNodeOutput> toOutput);
-
-    void holdSourceNodeUntilFinished(std::shared_ptr<AudioScheduledSourceNode>);
+    void holdSourceNodeUntilFinished(std::shared_ptr<AudioScheduledSourceNode> node);
     
     // Necessary to call when using an OfflineAudioDestinationNode
     void startRendering();
-    
-    std::shared_ptr<AudioBuffer> getOfflineRenderTarget() { return m_renderTarget; }
     std::function<void()> offlineRenderCompleteCallback;
 
 private:
 
     std::mutex m_graphLock;
     std::mutex m_renderLock;
-    std::mutex automaticSourcesMutex;
+    std::mutex m_updateMutex;
+    std::condition_variable cv;
 
-    bool m_isStopScheduled = false;
+    std::atomic<bool> updateThreadShouldRun{ true };
+    std::thread graphUpdateThread;
+    void update();
+    float graphKeepAlive{ 0.f };
+    float lastGraphUpdateTime{ 0.f };
+
     bool m_isInitialized = false;
     bool m_isAudioThreadFinished = false;
     bool m_isOfflineContext = false;
-    bool m_isDeletionScheduled = false;
     bool m_automaticPullNodesNeedUpdating = false; // keeps track if m_automaticPullNodes is modified.
 
-    // Number of AudioBufferSourceNodes that are active (playing).
+    // Number of SampledAudioNode that are active (playing).
     std::atomic<int> m_activeSourceCount;
     std::atomic<int> m_connectionCount;
 
-    void uninitialize(ContextGraphLock &);
+    void uninitialize();
 
-    // Audio thread is dead. Nobody will schedule node deletion action. Let's do it ourselves.
-    void clear();
-
-    void scheduleNodeDeletion(ContextRenderLock & g);
-
-    void referenceSourceNode(ContextGraphLock & g, std::shared_ptr<AudioNode> n);
-    void dereferenceSourceNode(ContextGraphLock & g, std::shared_ptr<AudioNode> n);
-    
     void handleAutomaticSources();
     void updateAutomaticPullNodes();
 
     std::shared_ptr<AudioDestinationNode> m_destinationNode;
     std::shared_ptr<AudioListener> m_listener;
-    std::shared_ptr<AudioBuffer> m_renderTarget;
-
-    std::vector<std::shared_ptr<AudioNode>> m_referencedNodes;
-
-    std::vector<std::shared_ptr<AudioNode>> m_nodesToDelete;
-    std::vector<std::shared_ptr<AudioNode>> m_nodesMarkedForDeletion;
 
     std::set<std::shared_ptr<AudioNode>> m_automaticPullNodes; // queue for added pull nodes
     std::vector<std::shared_ptr<AudioNode>> m_renderingAutomaticPullNodes; // vector of known pull nodes
 
     std::vector<std::shared_ptr<AudioScheduledSourceNode>> automaticSources;
-
-    typedef PendingConnection<AudioNode, AudioNode> PendingNodeConnection;
     
+    enum class ConnectionType : int
+    {
+        Disconnect = 0,
+        Connect,
+        FinishDisconnect
+    };
+
+    struct PendingConnection
+    {
+        ConnectionType type;
+        std::shared_ptr<AudioNode> destination;
+        std::shared_ptr<AudioNode> source;
+        uint32_t destIndex;
+        uint32_t srcIndex;
+        float duration = 0.1f;
+        PendingConnection(
+            std::shared_ptr<AudioNode> destination,
+            std::shared_ptr<AudioNode> source,
+            ConnectionType t,
+            uint32_t destIndex = 0,
+            uint32_t srcIndex = 0)
+            : destination(destination), source(source), type(t), destIndex(destIndex), srcIndex(srcIndex) { }
+    };
+
     struct CompareScheduledTime
     {
-        bool operator()(const PendingNodeConnection & p1, const PendingNodeConnection & p2)
+        bool operator()(const PendingConnection & p1, const PendingConnection & p2)
         {
-            if (!p2.from->isScheduledNode()) return true;
-            if (!p1.from->isScheduledNode()) return false;
-            AudioScheduledSourceNode * ap1 = static_cast<AudioScheduledSourceNode*>(p1.from.get());
-            AudioScheduledSourceNode * ap2 = static_cast<AudioScheduledSourceNode*>(p2.from.get());
+            if (!p1.destination || !p2.destination) return false;
+            if (!p2.destination->isScheduledNode()) return false; // src cannot be compared
+            if (!p1.destination->isScheduledNode()) return false; // dest cannot be compared
+            AudioScheduledSourceNode * ap2 = static_cast<AudioScheduledSourceNode*>(p2.destination.get());
+            AudioScheduledSourceNode * ap1 = static_cast<AudioScheduledSourceNode*>(p1.destination.get());
             return ap2->startTime() < ap1->startTime();
         }
     };
     
-    std::vector<PendingConnection<AudioNodeInput, AudioNodeOutput>> pendingConnections;
-    std::priority_queue<PendingNodeConnection, std::deque<PendingNodeConnection>, CompareScheduledTime> pendingNodeConnections;
+    std::priority_queue<PendingConnection, std::deque<PendingConnection>, CompareScheduledTime> pendingNodeConnections;
+    std::queue<std::tuple<std::shared_ptr<AudioParam>, std::shared_ptr<AudioNode>, uint32_t>> pendingParamConnections;
 };
 
 } // End namespace lab

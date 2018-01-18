@@ -5,7 +5,7 @@
 #ifndef AudioDestinationAndroid_h
 #define AudioDestinationAndroid_h
 
-#include "internal/AudioBus.h"
+#include "LabSound/core/AudioBus.h"
 #include "internal/AudioDestination.h"
 
 namespace lab {

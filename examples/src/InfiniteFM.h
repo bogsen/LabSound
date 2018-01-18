@@ -25,14 +25,13 @@
      }
  */
 
-
 // @tofix - This doesn't match the expected sonic result of the ChucK patch. Presumably
 // it is because LabSound oscillators are wavetable generated?
 struct InfiniteFMApp : public LabSoundExampleApp
 {
-    void PlayExample(const SoundBufferFactory& soundBufferFactory)
+    void PlayExample()
     {
-        auto context = lab::MakeAudioContext();
+        auto context = lab::MakeRealtimeAudioContext();
         
         std::shared_ptr<OscillatorNode> modulator;
         std::shared_ptr<GainNode> modulatorGain;
@@ -44,67 +43,60 @@ struct InfiniteFMApp : public LabSoundExampleApp
         std::shared_ptr<DelayNode> chainDelay;
         
         {
-            ContextGraphLock g(context, "Infinite FM");
-            ContextRenderLock r(context, "Infinite FM");
-            
-            modulator = std::make_shared<OscillatorNode>(r, context->sampleRate());
-            modulator->setType(r, OscillatorType::SQUARE);
+            modulator = std::make_shared<OscillatorNode>(context->sampleRate());
+            modulator->setType(OscillatorType::SQUARE);
             modulator->start(0);
             
-            modulatorGain = std::make_shared<GainNode>(context->sampleRate());
+            modulatorGain = std::make_shared<GainNode>();
             
-            osc = std::make_shared<OscillatorNode>(r, context->sampleRate());
-            osc->setType(r, OscillatorType::SQUARE);
-            osc->frequency()->setValue(220);
+            osc = std::make_shared<OscillatorNode>(context->sampleRate());
+            osc->setType(OscillatorType::SQUARE);
+            osc->frequency()->setValue(300);
             osc->start(0);
             
-            trigger = std::make_shared<ADSRNode>(context->sampleRate());
+            trigger = std::make_shared<ADSRNode>();
 
-            signalGain = std::make_shared<GainNode>(context->sampleRate());
+            signalGain = std::make_shared<GainNode>();
             signalGain->gain()->setValue(1.0f);
             
-            feedbackTap = std::make_shared<GainNode>(context->sampleRate());
+            feedbackTap = std::make_shared<GainNode>();
             feedbackTap->gain()->setValue(0.5f);
             
             chainDelay = std::make_shared<DelayNode>(context->sampleRate(), 4);
             chainDelay->delayTime()->setValue(0.0f); // passthrough delay, not sure if this has the same DSP semantic as ChucK
             
             // Set up processing chain:
-            modulator->connect(context.get(), modulatorGain.get(), 0, 0);           // Modulator to Gain
-            modulatorGain->connect(g, osc->frequency(), 0);                         // Gain to frequency parameter
-            osc->connect(context.get(), trigger.get(), 0, 0);                       // Osc to ADSR
-            trigger->connect(context.get(), signalGain.get(), 0, 0);                // ADSR to signalGain
-
-            signalGain->connect(context.get(), feedbackTap.get(), 0, 0);            // Signal to Feedback
-            feedbackTap->connect(context.get(), chainDelay.get(), 0, 0);            // Feedback to Delay
-            
-            chainDelay->connect(context.get(), signalGain.get(), 0, 0);             // Delay to signalGain
-            
-            signalGain->connect(context.get(), context->destination().get(), 0, 0); // signalGain to DAC
+            context->connect(modulatorGain, modulator, 0, 0);                   // Modulator to Gain
+            context->connectParam(osc->frequency(), modulatorGain, 0);          // Gain to frequency parameter
+            context->connect(trigger, osc, 0, 0);                               // Osc to ADSR
+            context->connect(signalGain, trigger, 0, 0);                        // ADSR to signalGain
+            context->connect(feedbackTap, signalGain, 0, 0);                    // Signal to Feedback
+            context->connect(chainDelay, feedbackTap, 0, 0);                    // Feedback to Delay
+            context->connect(signalGain, chainDelay, 0, 0);                     // Delay to signalGain
+            context->connect(context->destination(), signalGain, 0, 0);         // signalGain to DAC
         }
         
-        int now = 0.0;
-        while(true)
+        int now = 0;
+        while (true)
         {
-            // Debugging cruft --
-            float f = (float) std::uniform_int_distribution<int>(2, 48)(randomgenerator);
+            float cF = (float)std::uniform_int_distribution<int>(80, 440)(randomgenerator);
+            osc->frequency()->setValue(cF);
+
+            float f = (float) std::uniform_int_distribution<int>(4, 512)(randomgenerator);
             modulator->frequency()->setValue(f);
             std::cout << "Modulator Frequency: " << f << std::endl;
             
-            float g = (float) std::uniform_int_distribution<int>(64, 1024)(randomgenerator);
+            float g = (float) std::uniform_int_distribution<int>(16, 1024)(randomgenerator);
             modulatorGain->gain()->setValue(g);
             std::cout << "Gain: " << g << std::endl;
             
             trigger->noteOn(now);
-            trigger->set((std::uniform_int_distribution<int>(1, 64)(randomgenerator)), 0.5 , 0, 0, 0);
+            trigger->set((std::uniform_real_distribution<float>(0.25f, 0.5f)(randomgenerator)), 0.50f, 0.50f, 0, 0);
 
-            auto nextDelay = std::uniform_int_distribution<int>(128, 1024)(randomgenerator);
+            auto nextDelay = 512;
             now += nextDelay;
         
             std::this_thread::sleep_for(std::chrono::milliseconds(nextDelay));
-        }
-
-        lab::CleanupAudioContext(context);
-        
+        };
     }
 };

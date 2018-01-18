@@ -5,14 +5,10 @@
 #include "ExampleBaseApp.h"
 
 #include "Simple.h"
-#include "ConnectDisconnect.h"
-#include "OfflineRender.h"
 #include "ConvolutionReverb.h"
 #include "MicrophoneDalek.h"
 #include "MicrophoneLoopback.h"
 #include "MicrophoneReverb.h"
-#include "Rhythm.h"
-#include "RhythmAndFilters.h"
 #include "PeakCompressor.h"
 #include "StereoPanning.h"
 #include "Spatialization.h"
@@ -24,16 +20,12 @@
 
 
 SimpleApp g_simpleExample;
-ConnectDisconnectApp g_connectApp;
-OfflineRenderApp g_offlineRenderApp;
 ConvolutionReverbApp g_convolutionReverbExample;
 MicrophoneDalekApp g_microphoneDalekApp;
 MicrophoneLoopbackApp g_microphoneLoopback;
 MicrophoneReverbApp g_microphoneReverb;
 PeakCompressorApp g_peakCompressor;
 RedAlertApp g_redAlert;
-RhythmApp g_rhythm;
-RhythmAndFiltersApp g_rhythmAndFilters;
 SpatializationApp g_spatialization;
 TremoloApp g_tremolo;
 ValidationApp g_validation;
@@ -49,8 +41,6 @@ LabSoundExampleApp * g_runnbleExamples[] = {
 //        &g_microphoneLoopback,
 //        &g_microphoneReverb,
         &g_peakCompressor,
-        &g_rhythm,
-        &g_rhythmAndFilters,
 //        // Disabled, loads hrtf files from disk internally
 //        // &g_spatialization,
 //        &g_stereoPanning,
@@ -94,35 +84,35 @@ static FILE* android_fopen(const char * filename, const char * mode)
     return funopen(asset, android_read, android_write, android_seek, android_close);
 }
 
-struct AssetManagerSoundBufferFactory : public SoundBufferFactory
+struct AssetManagerSoundBufferFactory
 {
-    virtual lab::SoundBuffer Create(const char * path, float sampleRate) const override
-    {
-        FILE * audioFile = android_fopen(path, "rb");
-
-        if (!audioFile)
-        {
-            throw std::runtime_error("file not found");
-        }
-
-        fseek(audioFile, 0, SEEK_END);
-        size_t lengthInBytes = (size_t) ftell(audioFile);
-        fseek(audioFile, 0, SEEK_SET);
-
-        // Allocate temporary buffer
-        std::vector<uint8_t> fileBuffer(lengthInBytes);
-
-        size_t elementsRead = fread(fileBuffer.data(), 1, lengthInBytes, audioFile);
-
-        if (elementsRead == 0 || fileBuffer.size() < 64)
-        {
-            throw std::runtime_error("error reading file or file too small");
-        }
-
-        fclose(audioFile);
-
-        return lab::SoundBuffer(std::move(fileBuffer), ParsePathForExtension(path), sampleRate);
-    }
+//    virtual lab::SoundBuffer Create(const char * path, float sampleRate) const override
+//    {
+//        FILE * audioFile = android_fopen(path, "rb");
+//
+//        if (!audioFile)
+//        {
+//            throw std::runtime_error("file not found");
+//        }
+//
+//        fseek(audioFile, 0, SEEK_END);
+//        size_t lengthInBytes = (size_t) ftell(audioFile);
+//        fseek(audioFile, 0, SEEK_SET);
+//
+//        // Allocate temporary buffer
+//        std::vector<uint8_t> fileBuffer(lengthInBytes);
+//
+//        size_t elementsRead = fread(fileBuffer.data(), 1, lengthInBytes, audioFile);
+//
+//        if (elementsRead == 0 || fileBuffer.size() < 64)
+//        {
+//            throw std::runtime_error("error reading file or file too small");
+//        }
+//
+//        fclose(audioFile);
+//
+//        return lab::SoundBuffer(std::move(fileBuffer), ParsePathForExtension(path), sampleRate);
+//    }
 
     static std::string ParsePathForExtension(const std::string & path)
     {
@@ -151,7 +141,7 @@ Java_com_labsound_examples_Examples_nativeGetExamplesCount(JNIEnv * env, jclass 
 JNIEXPORT void JNICALL
 Java_com_labsound_examples_Examples_nativePlayExample(JNIEnv * env, jclass type, jint index)
 {
-    g_runnbleExamples[index]->PlayExample(AssetManagerSoundBufferFactory());
+    g_runnbleExamples[index]->PlayExample();
 }
 
 }

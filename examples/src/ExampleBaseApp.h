@@ -7,7 +7,6 @@
 #define LABSOUND_EXAMPLE_BASE_APP_H
 
 #include "LabSound/extended/LabSound.h"
-#include "SoundBufferFactory.h"
 
 #include <chrono>
 #include <thread>
@@ -26,7 +25,7 @@ using namespace lab;
 
 struct LabSoundExampleApp
 {
-    virtual void PlayExample(const SoundBufferFactory& soundBufferFactory) = 0;
+    virtual void PlayExample() = 0;
     
     float MidiToFrequency(int midiNote)
     {

@@ -18,63 +18,48 @@
 
 #include <stdio.h>
 #include <queue>
+#include <assert.h>
 
 namespace lab
 {
 
 const uint32_t lab::AudioContext::maxNumberOfChannels = 32;
-    
-std::shared_ptr<AudioHardwareSourceNode> MakeHardwareSourceNode(lab::ContextRenderLock & r)
-{
-    AudioSourceProvider * provider = nullptr;
-    
-    provider = r.contextPtr()->destination()->localAudioInputProvider();
-    
-    auto sampleRate = r.contextPtr()->sampleRate();
-    
-    std::shared_ptr<AudioHardwareSourceNode> inputNode(new AudioHardwareSourceNode(provider, sampleRate));
-    
-    // FIXME: Only stereo streams are supported right now. We should be able to accept multi-channel streams.
-    inputNode->setFormat(r, 2, sampleRate);
-    
-    //m_referencedNodes.push_back(inputNode); // context keeps reference until node is disconnected
-    
-    return inputNode;
-}
-    
+
 // Constructor for realtime rendering
-AudioContext::AudioContext()
+AudioContext::AudioContext(bool isOffline) : m_isOfflineContext(isOffline)
 {
-    m_isOfflineContext = false;
-    m_listener = std::make_shared<AudioListener>();
-}
-
-// Constructor for offline (non-realtime) rendering.
-AudioContext::AudioContext(unsigned numberOfChannels, size_t numberOfFrames, float sampleRate)
-{
-    m_isOfflineContext = true;
-    m_listener = std::make_shared<AudioListener>();
-
-    // Create a new destination for offline rendering.
-    m_renderTarget = std::make_shared<AudioBuffer>(numberOfChannels, numberOfFrames, sampleRate);
+    m_listener.reset(new AudioListener());
 }
 
 AudioContext::~AudioContext()
 {
-#if DEBUG_AUDIONODE_REFERENCES
-    fprintf(stderr, "%p: AudioContext::~AudioContext()\n", this);
-#endif
-    
+    LOG("Begin AudioContext::~AudioContext()");
+
+    if (!isOfflineContext()) graphKeepAlive = 0.25f;
+
+    updateThreadShouldRun = false;
+    if (graphUpdateThread.joinable())
+    {
+        cv.notify_all();
+        graphUpdateThread.join();
+    }
+
+    //std::unique_lock<std::mutex> lk(m_updateMutex); // do we need this? 
+
+    uninitialize();
+
+    // Audio thread is dead. Nobody will schedule node deletion action. Let's do it ourselves.
+    if (m_destinationNode.get()) m_destinationNode.reset();
+
 #if USE_ACCELERATE_FFT
     FFTFrame::cleanup();
 #endif
     
     ASSERT(!m_isInitialized);
-    ASSERT(m_isStopScheduled);
-    ASSERT(!m_nodesToDelete.size());
-    ASSERT(!m_referencedNodes.size());
     ASSERT(!m_automaticPullNodes.size());
     ASSERT(!m_renderingAutomaticPullNodes.size());
+
+    LOG("Finish AudioContext::~AudioContext()");
 }
 
 void AudioContext::lazyInitialize()
@@ -89,6 +74,9 @@ void AudioContext::lazyInitialize()
             {
                 m_destinationNode->initialize();
 
+                graphKeepAlive = 0.25f; // pump the graph for the first 0.25 seconds
+                graphUpdateThread = std::thread(&AudioContext::update, this);
+
                 if (!isOfflineContext())
                 {
                     // This starts the audio thread. The destination node's provideInput() method will now be called repeatedly to render audio.
@@ -96,29 +84,21 @@ void AudioContext::lazyInitialize()
                     m_destinationNode->startRendering();
                 }
 
+                cv.notify_all();
+            }
+            else
+            {
+                LOG_ERROR("m_destinationNode not specified");
             }
             m_isInitialized = true;
         }
     }
 }
 
-void AudioContext::clear()
+void AudioContext::uninitialize()
 {
-    // Audio thread is dead. Nobody will schedule node deletion action. Let's do it ourselves.
-    if (m_destinationNode.get())
-        m_destinationNode.reset();
-    
-    do
-    {
-        deleteMarkedNodes();
-        m_nodesToDelete.insert(m_nodesToDelete.end(), m_nodesMarkedForDeletion.begin(), m_nodesMarkedForDeletion.end());
-        m_nodesMarkedForDeletion.clear();
-    }
-    while (m_nodesToDelete.size());
-}
+    LOG("AudioContext::uninitialize()");
 
-void AudioContext::uninitialize(ContextGraphLock& g)
-{
     if (!m_isInitialized)
         return;
 
@@ -130,7 +110,6 @@ void AudioContext::uninitialize(ContextGraphLock& g)
     
     updateAutomaticPullNodes(); // added for the case where an OfflineAudioDestinationNode needs to update the graph
 
-    m_referencedNodes.clear();
     m_isInitialized = false;
 }
 
@@ -144,60 +123,27 @@ void AudioContext::incrementConnectionCount()
     ++m_connectionCount;
 }
 
-void AudioContext::stop(ContextGraphLock& g)
+void AudioContext::holdSourceNodeUntilFinished(std::shared_ptr<AudioScheduledSourceNode> node)
 {
-    if (m_isStopScheduled)
-        return;
-
-    m_isStopScheduled = true;
-
-    deleteMarkedNodes();
-
-    uninitialize(g);
-    clear();
-}
-
-void AudioContext::referenceSourceNode(ContextGraphLock & g, std::shared_ptr<AudioNode> node)
-{
-    m_referencedNodes.push_back(node);
-}
-
-void AudioContext::dereferenceSourceNode(ContextGraphLock & g, std::shared_ptr<AudioNode> node)
-{
-    ASSERT(g.context());
-
-    for (std::vector<std::shared_ptr<AudioNode>>::iterator i = m_referencedNodes.begin(); i != m_referencedNodes.end(); ++i)
-    {
-        if (node == *i)
-        {
-            m_referencedNodes.erase(i);
-            break;
-        }
-    }
-}
-
-void AudioContext::holdSourceNodeUntilFinished(std::shared_ptr<AudioScheduledSourceNode> sn)
-{
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
-    automaticSources.push_back(sn);
+    std::lock_guard<std::mutex> lock(m_updateMutex);
+    automaticSources.push_back(node);
 }
 
 void AudioContext::handleAutomaticSources()
 {
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
+    std::lock_guard<std::mutex> lock(m_updateMutex);
     for (auto i = automaticSources.begin(); i != automaticSources.end(); ++i)
     {
         if ((*i)->hasFinished())
         {
-            pendingNodeConnections.emplace(*i, std::shared_ptr<AudioNode>(), false);
+            pendingNodeConnections.emplace(*i, std::shared_ptr<AudioNode>(), ConnectionType::Disconnect, 0, 0); 
             i = automaticSources.erase(i);
-            if (i == automaticSources.end())
-                break;
+            if (i == automaticSources.end()) break;
         }
     }
 }
 
-void AudioContext::handlePreRenderTasks(ContextRenderLock& r)
+void AudioContext::handlePreRenderTasks(ContextRenderLock & r)
 {
     ASSERT(r.context());
 
@@ -206,196 +152,202 @@ void AudioContext::handlePreRenderTasks(ContextRenderLock& r)
     updateAutomaticPullNodes();
 }
 
-void AudioContext::handlePostRenderTasks(ContextRenderLock& r)
+void AudioContext::handlePostRenderTasks(ContextRenderLock & r)
 {
     ASSERT(r.context());
 
-    // Don't delete in the real-time thread. Let the main thread do it because the clean up may take time
-    scheduleNodeDeletion(r);
-
     AudioSummingJunction::handleDirtyAudioSummingJunctions(r);
-    updateAutomaticPullNodes();
 
+    updateAutomaticPullNodes();
     handleAutomaticSources();
 }
 
-// ---
-    
-void AudioContext::connect(std::shared_ptr<AudioNode> from, std::shared_ptr<AudioNode> to)
+void AudioContext::connect(std::shared_ptr<AudioNode> destination, std::shared_ptr<AudioNode> source, uint32_t destIdx, uint32_t srcIdx)
 {
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
-    pendingNodeConnections.emplace(from, to, true);
+    if (!destination) throw std::runtime_error("Cannot connect to null destination");
+    if (!destination) throw std::runtime_error("Cannot connect from null source");
+    std::lock_guard<std::mutex> lock(m_updateMutex);
+    if (srcIdx > source->numberOfOutputs()) throw std::out_of_range("Output index greater than available outputs");
+    if (destIdx > destination->numberOfInputs()) throw std::out_of_range("Input index greater than available inputs");
+    pendingNodeConnections.emplace(destination, source, ConnectionType::Connect, destIdx, srcIdx);
+    cv.notify_all();
 }
 
-void AudioContext::disconnect(std::shared_ptr<AudioNode> from, std::shared_ptr<AudioNode> to)
+void AudioContext::disconnect(std::shared_ptr<AudioNode> destination, std::shared_ptr<AudioNode> source, uint32_t destIdx, uint32_t srcIdx)
 {
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
-    pendingNodeConnections.emplace(from, to, false);
+    std::lock_guard<std::mutex> lock(m_updateMutex);
+    if (source && srcIdx > source->numberOfOutputs()) throw std::out_of_range("Output index greater than available outputs");
+    if (destination && destIdx > destination->numberOfInputs()) throw std::out_of_range("Input index greater than available inputs");
+    pendingNodeConnections.emplace(destination, source, ConnectionType::Disconnect, destIdx, srcIdx);
+    cv.notify_all();
 }
 
-// --- 
-    
-void AudioContext::connect(std::shared_ptr<AudioNodeInput> fromInput, std::shared_ptr<AudioNodeOutput> toOutput)
+void AudioContext::connectParam(std::shared_ptr<AudioParam> param, std::shared_ptr<AudioNode> driver, uint32_t index)
 {
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
-    pendingConnections.emplace_back(PendingConnection<AudioNodeInput, AudioNodeOutput>(fromInput, toOutput, true));
+    if (!param) throw std::invalid_argument("No parameter specified");
+    if (index >= driver->numberOfOutputs()) throw std::out_of_range("Output index greater than available outputs on the driver");
+    pendingParamConnections.push(std::make_tuple(param, driver, index));
+    cv.notify_all();
 }
 
-void AudioContext::disconnect(std::shared_ptr<AudioNodeOutput> toOutput)
+void AudioContext::update()
 {
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
-    auto nullSource = std::shared_ptr<AudioNodeInput>(nullptr);
-    pendingConnections.emplace_back(PendingConnection<AudioNodeInput, AudioNodeOutput>(nullSource, toOutput, false));
-}
-    
-// ---
-    
-void AudioContext::disconnect(std::shared_ptr<AudioNode> from)
-{
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
-    pendingNodeConnections.emplace(from, std::shared_ptr<AudioNode>(), false);
-}
+    LOG("Begin UpdateGraphThread");
 
-void AudioContext::update(ContextGraphLock& g)
-{
+    const float frameSizeMs = (sampleRate() / (float)AudioNode::ProcessingSizeInFrames) / 1000.f; // = ~0.345ms @ 44.1k/128
+    const float graphTickDurationMs = frameSizeMs * 16; // = ~5.5ms
+    const int graphTickDurationUs = graphTickDurationMs * 1000.f;  // = ~5550us
+
+    while (updateThreadShouldRun || graphKeepAlive > 0)
     {
-        std::lock_guard<std::mutex> lock(automaticSourcesMutex);
-        
-        for (auto i : pendingConnections)
-        {
-            if (i.connect)
+        // A `unique_lock` automatically acquires a lock on construction. The purpose of
+        // this mutex is to synchronize updates to the graph from the main thread, 
+        // primarily through `connect(...)` and `disconnect(...)`. 
+        std::unique_lock<std::mutex> lk;
+
+        if (!m_isOfflineContext)
+        {   
+            lk = std::unique_lock<std::mutex>(m_updateMutex);
+            // A condition variable is used to notify this thread that a graph update is pending 
+            // in one of the queues. 
+
+            // graph needs to tick to complete
+            if ((currentTime() + graphKeepAlive) > currentTime())
             {
-                //LOG("Connect from: %p", i.from.get());
-                //LOG("Connect to: %p", i.to.get());
-                AudioNodeInput::connect(g, i.from, i.to);
+                cv.wait_until(lk, std::chrono::steady_clock::now() + std::chrono::microseconds(graphTickDurationUs));
             }
             else
             {
-                //LOG("Disconnect from: %p", i.from.get());
-                //LOG("Disconnect to: %p", i.to.get());
-                AudioNodeOutput::disconnectAll(g, i.to); // Params + Inputs
+                // otherwise wait for someone to connect or disconnect something
+                cv.wait(lk);
             }
         }
-        pendingConnections.clear();
 
-        double now = currentTime();
-        
-        //for (auto i : pendingNodeConnections)
-        while (!pendingNodeConnections.empty())
         {
-            auto& testMe = pendingNodeConnections.top();
-            if (testMe.from->isScheduledNode()) {
-                AudioScheduledSourceNode* node = dynamic_cast<AudioScheduledSourceNode*>(testMe.from.get());
-                
-                if (node->startTime() > now + sampleRate() * 1.f/1000000.f * 1.f/10.f)
-                    break; // stop processing the queue if the scheduled time is > 100ms away
-            }
-            
-            auto i = pendingNodeConnections.top();
-            pendingNodeConnections.pop();
-            
-            if (i.connect)
+            ContextGraphLock gLock(this, "AudioContext::Update()");
+
+            const double now = currentTime();
+            const float delta = (now - lastGraphUpdateTime);
+            lastGraphUpdateTime = now;
+            graphKeepAlive -= delta;
+
+            //std::cout << now << std::endl;
+
+            // Satisfy parameter connections
+            while (!pendingParamConnections.empty())
             {
-                AudioNodeInput::connect(g, i.to->input(0), i.from->output(0));
-                referenceSourceNode(g, i.from);
-                referenceSourceNode(g, i.to);
-                ++i.from->m_connectionRefCount;
-                ++i.to->m_connectionRefCount;
+                auto connection = pendingParamConnections.front();
+                pendingParamConnections.pop();
+                AudioParam::connect(gLock, std::get<0>(connection), std::get<1>(connection)->output(std::get<2>(connection)));
             }
-            else
+
+            std::vector<PendingConnection> skippedConnections;
+
+            // Satisfy node connections
+            while (!pendingNodeConnections.empty())
             {
-                if (i.to && i.from)
+                auto connection = pendingNodeConnections.top();
+                pendingNodeConnections.pop();
+
+                switch (connection.type)
                 {
-                    --i.from->m_connectionRefCount;
-                    --i.to->m_connectionRefCount;
-                    AudioNodeInput::disconnect(g, i.from->input(0), i.to->output(0));
-                    dereferenceSourceNode(g, i.from);
-                    dereferenceSourceNode(g, i.to);
-                }
-                else if (i.from)
+                case ConnectionType::Connect:
                 {
-                    --i.from->m_connectionRefCount;
-                    for (size_t out = 0; out < i.from->numberOfOutputs(); ++out)
+                    // requue this node if the scheduled time is > 100ms away
+                    if (connection.destination && connection.destination->isScheduledNode())
                     {
-                        auto output = i.from->output(out);
-                        if (!output)
+                        AudioScheduledSourceNode * node = dynamic_cast<AudioScheduledSourceNode*>(connection.destination.get());
+                        if (node->startTime() > now + 0.1)
+                        {
+                            pendingNodeConnections.pop(); // pop from current queue
+                            skippedConnections.push_back(connection); // save for later
                             continue;
-                        
-                        AudioNodeOutput::disconnectAllInputs(g, output);
-                        AudioNodeOutput::disconnectAllParams(g, output);
+                        }
                     }
+
+                    connection.source->scheduleConnect();
+
+                    AudioNodeInput::connect(gLock, connection.destination->input(connection.destIndex), connection.source->output(connection.srcIndex));
                 }
-                else if (i.to)
+                break;
+
+                case ConnectionType::Disconnect:
                 {
-                    --i.to->m_connectionRefCount;
-                    for (size_t out = 0; out < i.to->numberOfOutputs(); ++out)
+                    connection.type = ConnectionType::FinishDisconnect;
+                    skippedConnections.push_back(connection); // save for later
+                    if (connection.source)
                     {
-                        auto output = i.to->output(out);
-                        if (!output)
-                            continue;
-                        
-                        AudioNodeOutput::disconnectAllInputs(g, output);
-                        AudioNodeOutput::disconnectAllParams(g, output);
+                        // if source and destination are specified, then we don't ramp out the destination
+                        connection.source->scheduleDisconnect();
                     }
+                    else if (connection.destination)
+                    {
+                        // this case is a disconnect where source is nothing, and destination is something
+                        // probably this case should be disallowed because we have to study it to find out
+                        // if it is any different than a source with no destination. Answer: it's the same. source or dest by itself means disconnect all
+                        connection.destination->scheduleDisconnect();
+                    }
+                    graphKeepAlive = updateThreadShouldRun ? connection.duration : graphKeepAlive;
+                }
+                break;
+
+                // @TODO disconnect should occur not in the next quantum, but when node->disconnectionReady() is true
+                case ConnectionType::FinishDisconnect:
+                {
+                    if (connection.duration > 0)
+                    {
+                        connection.duration -= delta;
+                        skippedConnections.push_back(connection); 
+                        continue;
+                    }
+
+                    if (connection.source && connection.destination)
+                    {
+                        AudioNodeInput::disconnect(gLock, connection.destination->input(connection.destIndex), connection.source->output(connection.srcIndex));
+                    }
+                    else if (connection.destination)
+                    {
+                        for (size_t out = 0; out < connection.destination->numberOfOutputs(); ++out)
+                        {
+                            auto output = connection.destination->output(out);
+                            if (!output) continue;
+
+                            AudioNodeOutput::disconnectAll(gLock, output);
+                        }
+                    }
+                    else if (connection.source)
+                    {
+                        for (size_t out = 0; out < connection.source->numberOfOutputs(); ++out)
+                        {
+                            auto output = connection.source->output(out);
+                            if (!output) continue;
+
+                            AudioNodeOutput::disconnectAll(gLock, output);
+                        }
+                    }
+
+                }
+                break;
                 }
             }
+
+            // We have incompletely connected nodes, so next time the thread ticks we can re-check them 
+            for (auto & sc : skippedConnections)
+            {
+                pendingNodeConnections.push(sc);
+            }
+
         }
-        
-        //auto d = destination();
-        //auto in = d->input(0);
-        //printf("%d\n", (int) in->numberOfRenderingConnections());
-        //pendingNodeConnections.clear();
+
+        if (lk.owns_lock()) lk.unlock();
     }
+
+    LOG("End UpdateGraphThread");
 }
-
-void AudioContext::markForDeletion(ContextRenderLock& r, AudioNode* node)
-{
-    ASSERT(r.context());
-    for (auto i : m_referencedNodes)
-    {
-        if (i.get() == node)
-        {
-            m_nodesMarkedForDeletion.push_back(i);
-            return;
-        }
-    }
-}
-
-void AudioContext::scheduleNodeDeletion(ContextRenderLock& r)
-{
-    //@fixme
-    // &&& all this deletion stuff should be handled by a concurrent queue - simply have only a m_nodesToDelete concurrent queue and ditch the marked vector
-    // then this routine sould go away completely
-    // node->deref is the only caller, it should simply add itself to the scheduled deletion queue
-    // marked for deletion should go away too
-
-    bool isGood = m_isInitialized && r.context();
-    ASSERT(isGood);
-    if (!isGood)
-        return;
-
-    if (m_nodesMarkedForDeletion.size() && !m_isDeletionScheduled)
-    {
-        m_nodesToDelete.insert(m_nodesToDelete.end(), m_nodesMarkedForDeletion.begin(), m_nodesMarkedForDeletion.end());
-        m_nodesMarkedForDeletion.clear();
-
-        m_isDeletionScheduled = true;
-
-        deleteMarkedNodes();
-    }
-}
-
-void AudioContext::deleteMarkedNodes()
-{
-    //@fixme thread safety
-    m_nodesToDelete.clear();
-    m_isDeletionScheduled = false;
-}
-
 
 void AudioContext::addAutomaticPullNode(std::shared_ptr<AudioNode> node)
 {
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
+    std::lock_guard<std::mutex> lock(m_updateMutex);
     if (m_automaticPullNodes.find(node) == m_automaticPullNodes.end())
     {
         m_automaticPullNodes.insert(node);
@@ -405,7 +357,7 @@ void AudioContext::addAutomaticPullNode(std::shared_ptr<AudioNode> node)
 
 void AudioContext::removeAutomaticPullNode(std::shared_ptr<AudioNode> node)
 {
-    std::lock_guard<std::mutex> lock(automaticSourcesMutex);
+    std::lock_guard<std::mutex> lock(m_updateMutex);
     auto it = m_automaticPullNodes.find(node);
     if (it != m_automaticPullNodes.end())
     {
@@ -418,7 +370,7 @@ void AudioContext::updateAutomaticPullNodes()
 {
     if (m_automaticPullNodesNeedUpdating)
     {
-        std::lock_guard<std::mutex> lock(automaticSourcesMutex);
+        std::lock_guard<std::mutex> lock(m_updateMutex);
 
         // Copy from m_automaticPullNodes to m_renderingAutomaticPullNodes.
         m_renderingAutomaticPullNodes.resize(m_automaticPullNodes.size());
@@ -433,7 +385,7 @@ void AudioContext::updateAutomaticPullNodes()
     }
 }
 
-void AudioContext::processAutomaticPullNodes(ContextRenderLock& r, size_t framesToProcess)
+void AudioContext::processAutomaticPullNodes(ContextRenderLock & r, size_t framesToProcess)
 {
     for (unsigned i = 0; i < m_renderingAutomaticPullNodes.size(); ++i)
         m_renderingAutomaticPullNodes[i]->processIfNecessary(r, framesToProcess);
@@ -466,12 +418,13 @@ double AudioContext::currentTime() const
 
 float AudioContext::sampleRate() const 
 {  
-    return m_destinationNode ? m_destinationNode->sampleRate() : AudioDestination::hardwareSampleRate(); 
+    ASSERT(m_destinationNode);
+    return m_destinationNode->sampleRate();
 }
 
-std::shared_ptr<AudioListener> AudioContext::listener() 
+AudioListener & AudioContext::listener() 
 { 
-    return m_listener; 
+    return *m_listener.get(); 
 }
 
 unsigned long AudioContext::activeSourceCount() const 

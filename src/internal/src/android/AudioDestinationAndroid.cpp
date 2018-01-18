@@ -204,11 +204,6 @@ AudioDestination* AudioDestination::MakePlatformAudioDestination(AudioIOCallback
     return new AudioDestinationAndroid(callback, sampleRate, kProcessingSizeInFrames, true, true);
 }
 
-float AudioDestination::hardwareSampleRate()
-{
-    return 48000;
-}
-
 unsigned long AudioDestination::maxChannelCount()
 {
     return 2;

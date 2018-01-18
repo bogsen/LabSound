@@ -4,6 +4,7 @@
 
 #include "internal/HRTFDatabaseLoader.h"
 #include "internal/HRTFDatabase.h"
+#include "internal/Assertions.h"
 
 #include <iostream>
 
@@ -40,7 +41,6 @@ HRTFDatabaseLoader::~HRTFDatabaseLoader()
     
     s_loader.reset();
 }
-
 
 // Asynchronously load the database in this thread.
 void HRTFDatabaseLoader::databaseLoaderEntry(HRTFDatabaseLoader * threadData)

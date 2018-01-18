@@ -28,8 +28,8 @@ public:
         FINISHED_STATE = 3
     };
     
-    AudioScheduledSourceNode(float sampleRate);
-    virtual ~AudioScheduledSourceNode() {}
+    AudioScheduledSourceNode();
+    virtual ~AudioScheduledSourceNode() { }
 
     // Scheduling.
     void start(double when);
@@ -39,8 +39,7 @@ public:
 
     unsigned short playbackState() const { return static_cast<unsigned short>(m_playbackState); }
 
-    bool isPlayingOrScheduled() const {
-        return m_playbackState == PLAYING_STATE || m_playbackState == SCHEDULED_STATE; }
+    bool isPlayingOrScheduled() const { return m_playbackState == PLAYING_STATE || m_playbackState == SCHEDULED_STATE; }
 
     bool hasFinished() const { return m_playbackState == FINISHED_STATE; }
 

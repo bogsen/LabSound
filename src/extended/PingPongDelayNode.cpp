@@ -4,14 +4,13 @@
 #include "LabSound/core/AudioNodeInput.h"
 #include "LabSound/core/AudioNodeOutput.h"
 #include "LabSound/core/AudioProcessor.h"
+#include "LabSound/core/AudioBus.h"
+#include "LabSound/core/Macros.h"
 
 #include "LabSound/extended/PingPongDelayNode.h"
 #include "LabSound/extended/AudioContextLock.h"
 
-#include "internal/AudioBus.h"
-
 #include <algorithm>
-#include <WTF/MathExtras.h>
 
 using namespace lab;
 
@@ -19,22 +18,22 @@ namespace lab
 {
     PingPongDelayNode::PingPongDelayNode(float sampleRate, float tempo)
     {
-        input = std::make_shared<lab::GainNode>(sampleRate);
-        output = std::make_shared<lab::GainNode>(sampleRate);
+        input = std::make_shared<lab::GainNode>();
+        output = std::make_shared<lab::GainNode>();
 
         leftDelay = std::make_shared<lab::BPMDelay>(sampleRate, tempo);
         rightDelay = std::make_shared<lab::BPMDelay>(sampleRate, tempo);
 
-        splitterGain = std::make_shared<lab::GainNode>(sampleRate);
-        wetGain = std::make_shared<lab::GainNode>(sampleRate);
-        feedbackGain = std::make_shared<lab::GainNode>(sampleRate);
+        splitterGain = std::make_shared<lab::GainNode>();
+        wetGain = std::make_shared<lab::GainNode>();
+        feedbackGain = std::make_shared<lab::GainNode>();
 
-        merger = std::make_shared<lab::ChannelMergerNode>(sampleRate, 2);
-        splitter = std::make_shared<lab::ChannelSplitterNode>(sampleRate, 2);
+        merger = std::make_shared<lab::ChannelMergerNode>(2);
+        splitter = std::make_shared<lab::ChannelSplitterNode>(2);
 
         SetDelayIndex(TempoSync::TS_8);
         SetFeedback(0.5f);
-        SetLevel(0.5f);
+        SetLevel(1.0f);
     }
     
     PingPongDelayNode::~PingPongDelayNode()
@@ -67,36 +66,31 @@ namespace lab
         rightDelay->SetDelayIndex(value);
     }
 
-    void PingPongDelayNode::BuildSubgraph(ContextGraphLock & lock) 
+    void PingPongDelayNode::BuildSubgraph(std::unique_ptr<AudioContext> & ac) 
     {
-        auto ac = lock.context();
-
-        if (!ac) 
-            throw std::invalid_argument("Graph lock could not acquire context");
 
         // Input into splitter
-        input->connect(ac, splitter.get(), 0, 0);
+        ac->connect(splitter, input, 0, 0);
 
-        splitter->connect(ac, splitterGain.get(), 0, 0);
-        splitter->connect(ac, splitterGain.get(), 1, 0);
+        ac->connect(splitterGain, splitter, 0, 0);
+        ac->connect(splitterGain, splitter, 1, 0);
 
-        splitterGain->connect(ac, wetGain.get(), 0, 0); 
+        ac->connect(wetGain, splitterGain, 0, 0);
         splitterGain->gain()->setValue(0.5f);
 
-        wetGain->connect(ac, leftDelay.get(), 0, 0);
+        ac->connect(leftDelay, wetGain, 0, 0);
+        ac->connect(leftDelay, feedbackGain, 0, 0);
 
-        feedbackGain->connect(ac, leftDelay.get(), 0, 0);
+        ac->connect(rightDelay, leftDelay, 0, 0);
+        ac->connect(feedbackGain, rightDelay, 0, 0);
 
-        leftDelay->connect(ac, rightDelay.get(), 0, 0);
-        rightDelay->connect(ac, feedbackGain.get(), 0, 0);
+        ac->connect(merger, leftDelay, 0, 0);
+        ac->connect(merger, rightDelay, 0, 1);
 
-        leftDelay->connect(ac, merger.get(), 0, 0);
-        rightDelay->connect(ac, merger.get(), 0, 1);
-
-        merger->connect(ac, output.get(), 0, 0);
+        ac->connect(output, merger, 0, 0);
 
         // Activate with input->output
-        input->connect(ac, output.get(), 0, 0);
+        ac->connect(output, input, 0, 0);
     }
 
 

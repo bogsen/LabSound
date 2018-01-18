@@ -5,36 +5,43 @@
 
 struct ConvolutionReverbApp : public LabSoundExampleApp
 {
-    void PlayExample(const SoundBufferFactory& soundBufferFactory)
+    void PlayExample()
     {
-        auto context = lab::MakeAudioContext();
+        auto context = lab::MakeRealtimeAudioContext();
         
-        SoundBuffer impulseResponse = soundBufferFactory.Create(
-                "impulse/cardiod-rear-levelled.wav", context->sampleRate());
-        //SoundBuffer impulseResponse("impulse/filter-telephone.wav", context->sampleRate()); // alternate
-        
-        SoundBuffer sample = soundBufferFactory.Create("samples/voice.ogg", context->sampleRate());
+        std::shared_ptr<AudioBus> impulseResponseClip = MakeBusFromFile("impulse/cardiod-rear-levelled.wav", false);
+        std::shared_ptr<AudioBus> voiceClip = MakeBusFromFile("samples/voice.ogg", false);
+
         std::shared_ptr<ConvolverNode> convolve;
         std::shared_ptr<GainNode> wetGain;
         std::shared_ptr<GainNode> dryGain;
-        std::shared_ptr<AudioNode> voice;
+        std::shared_ptr<SampledAudioNode> voiceNode;
+        std::shared_ptr<GainNode> outputGain = std::make_shared<GainNode>();
         
         {
-            ContextGraphLock g(context, "ConvolutionReverbApp");
-            ContextRenderLock r(context, "ConvolutionReverbApp");
-            convolve = std::make_shared<ConvolverNode>(context->sampleRate());
-            convolve->setBuffer(g, impulseResponse.audioBuffer);
-            wetGain = std::make_shared<GainNode>(context->sampleRate());
+            ContextRenderLock r(context.get(), "ConvolutionReverbApp");
+
+            convolve = std::make_shared<ConvolverNode>();
+            convolve->setImpulse(impulseResponseClip);
+
+            wetGain = std::make_shared<GainNode>();
             wetGain->gain()->setValue(1.15f);
-            dryGain = std::make_shared<GainNode>(context->sampleRate());
+            dryGain = std::make_shared<GainNode>();
             dryGain->gain()->setValue(0.75f);
             
-            convolve->connect(context.get(), wetGain.get(), 0, 0);
-            wetGain->connect(context.get(), context->destination().get(), 0, 0);
-            dryGain->connect(context.get(), context->destination().get(), 0, 0);
-            dryGain->connect(context.get(), convolve.get(), 0, 0);
+            context->connect(wetGain, convolve, 0, 0);
+            context->connect(outputGain, wetGain, 0, 0);
+            context->connect(outputGain, dryGain, 0, 0);
+            context->connect(convolve, dryGain, 0, 0);
             
-            voice = sample.play(r, dryGain, 0);
+            outputGain->gain()->setValue(0.5f);
+
+            voiceNode = std::make_shared<SampledAudioNode>();
+            voiceNode->setBus(r, voiceClip);
+            context->connect(dryGain, voiceNode, 0, 0);
+            voiceNode->start(0.0f);
+
+            context->connect(context->destination(), outputGain, 0, 0);
         }
         
         const int seconds = 10;
@@ -42,7 +49,5 @@ struct ConvolutionReverbApp : public LabSoundExampleApp
         {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-        
-        lab::CleanupAudioContext(context);
     }
 };

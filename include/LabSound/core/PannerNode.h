@@ -37,7 +37,7 @@ public:
         EXPONENTIAL_DISTANCE = 2,
     };
     
-    PannerNode(float sampleRate, const std::string & searchPath = "");
+    PannerNode(const float sampleRate, const std::string & searchPath = "");
     virtual ~PannerNode();
 
     // AudioNode
@@ -47,24 +47,21 @@ public:
     virtual void initialize() override;
     virtual void uninitialize() override;
 
-    // Listener
-    std::shared_ptr<AudioListener> listener(ContextRenderLock & r);
-
     // Panning model
     PanningMode panningModel() const { return m_panningModel; }
     void setPanningModel(PanningMode m);
 
     // Position
     FloatPoint3D position() const { return m_position; }
-    void setPosition(float x, float y, float z) { m_position = FloatPoint3D(x, y, z); }
+    void setPosition(float x, float y, float z) { m_position = { x, y, z }; }
 
     // Orientation
-    FloatPoint3D orientation() const { return m_position; }
-    void setOrientation(float x, float y, float z) { m_orientation = FloatPoint3D(x, y, z); }
+    FloatPoint3D orientation() const { return m_orientation; }
+    void setOrientation(float x, float y, float z) { m_orientation = { x, y, z }; }
 
     // Velocity
     FloatPoint3D velocity() const { return m_velocity; }
-    void setVelocity(float x, float y, float z) { m_velocity = FloatPoint3D(x, y, z); }
+    void setVelocity(float x, float y, float z) { m_velocity = { x, y, z }; }
 
     // Distance parameters
     unsigned short distanceModel();
@@ -96,8 +93,8 @@ public:
     std::shared_ptr<AudioParam> distanceGain() { return m_distanceGain; }
     std::shared_ptr<AudioParam> coneGain() { return m_coneGain; }
 
-    virtual double tailTime() const override;
-    virtual double latencyTime() const override;
+    virtual double tailTime(ContextRenderLock & r) const override;
+    virtual double latencyTime(ContextRenderLock & r) const override;
 
 protected:
 
@@ -106,7 +103,7 @@ protected:
     // Returns the combined distance and cone gain attenuation.
     virtual float distanceConeGain(ContextRenderLock & r);
 
-    // Notifies any AudioBufferSourceNodes connected to us either directly or indirectly about our existence.
+    // Notifies any SampledAudioNodes connected to us either directly or indirectly about our existence.
     // This is in order to handle the pitch change necessary for the doppler shift.
     // @tofix - broken?
     void notifyAudioSourcesConnectedToNode(ContextRenderLock & r, AudioNode *);
@@ -115,9 +112,9 @@ protected:
 
     PanningMode m_panningModel;
 
-    FloatPoint3D m_position;
-    FloatPoint3D m_orientation;
-    FloatPoint3D m_velocity;
+    FloatPoint3D m_position{ 0, 0, 0 };
+    FloatPoint3D m_orientation{ 0, 0, 0 };
+    FloatPoint3D m_velocity{ 0, 0, 0 };
 
     std::shared_ptr<AudioParam> m_distanceGain;
     std::shared_ptr<AudioParam> m_coneGain;
@@ -127,6 +124,7 @@ protected:
 
     float m_lastGain = -1.0f;
     unsigned m_connectionCount = 0;
+    float m_sampleRate;
 };
 
 } // namespace lab

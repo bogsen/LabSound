@@ -5,9 +5,9 @@
 
 struct TremoloApp : public LabSoundExampleApp
 {
-    void PlayExample(const SoundBufferFactory& soundBufferFactory)
+    void PlayExample()
     {
-        auto context = lab::MakeAudioContext();
+        auto context = lab::MakeRealtimeAudioContext();
         
         std::shared_ptr<OscillatorNode> modulator;
         std::shared_ptr<GainNode> modulatorGain;
@@ -17,28 +17,27 @@ struct TremoloApp : public LabSoundExampleApp
         std::shared_ptr<ADSRNode> trigger;
         
         {
-            ContextGraphLock g(context, "Tremolo");
-            ContextRenderLock r(context, "Tremolo");
+            ContextRenderLock r(context.get(), "Tremolo");
             
-            modulator = std::make_shared<OscillatorNode>(r, context->sampleRate());
-            modulator->setType(r, OscillatorType::SINE);
+            modulator = std::make_shared<OscillatorNode>(context->sampleRate());
+            modulator->setType(OscillatorType::SINE);
             modulator->start(0);
             modulator->frequency()->setValue(8.0f);
             
-            modulatorGain = std::make_shared<GainNode>(context->sampleRate());
+            modulatorGain = std::make_shared<GainNode>();
             modulatorGain->gain()->setValue(10);
             
-            osc = std::make_shared<OscillatorNode>(r, context->sampleRate());
-            osc->setType(r, OscillatorType::TRIANGLE);
+            osc = std::make_shared<OscillatorNode>(context->sampleRate());
+            osc->setType(OscillatorType::TRIANGLE);
             osc->frequency()->setValue(440);
             osc->start(0);
             
             // Set up processing chain
             // modulator > modulatorGain ---> osc frequency
             //                                osc > context
-            modulator->connect(context.get(), modulatorGain.get(), 0, 0);
-            modulatorGain->connect(g, osc->frequency(), 0);
-            osc->connect(context.get(), context->destination().get(), 0, 0);
+            context->connect(modulatorGain, modulator, 0, 0);
+            context->connectParam(osc->frequency(), modulatorGain, 0);
+            context->connect(context->destination(), osc, 0, 0);
         }
         
         int nowInSeconds = 0;
@@ -47,7 +46,5 @@ struct TremoloApp : public LabSoundExampleApp
             std::this_thread::sleep_for(std::chrono::seconds(1));
             nowInSeconds += 1;
         }
-
-        lab::CleanupAudioContext(context);
     }
 };

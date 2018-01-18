@@ -19,7 +19,7 @@ std::string PrintCurrentDirectory()
 struct ValidationApp : public LabSoundExampleApp
 {
 
-    void PlayExample(const SoundBufferFactory& soundBufferFactory)
+    void PlayExample()
     {
         
         std::array<int, 8> majorScale = {0, 2, 4, 5, 7, 9, 11, 12};
@@ -34,25 +34,26 @@ struct ValidationApp : public LabSoundExampleApp
         
         //std::cout << "Current Directory: " << PrintCurrentDirectory() << std::endl;
         
-        auto context = lab::MakeAudioContext();
+        auto context = lab::MakeRealtimeAudioContext();
         auto ac = context.get();
 
-        std::shared_ptr<AudioBufferSourceNode> beatNode;
-        std::shared_ptr<PingPongDelayNode> pingping;
+        std::shared_ptr<AudioBus> audioClip = MakeBusFromFile("samples/cello_pluck/cello_pluck_As0.wav", false);
+        std::shared_ptr<SampledAudioNode> audioClipNode = std::make_shared<SampledAudioNode>();
+        std::shared_ptr<PingPongDelayNode> pingping = std::make_shared<PingPongDelayNode>(context->sampleRate(), 120.0f);
 
         {
-            ContextGraphLock g(context, "Validator");
-            ContextRenderLock r(context, "Validator");
+            ContextRenderLock r(ac, "Validator");
             
-            pingping  = std::make_shared<PingPongDelayNode>(context->sampleRate(), 120.0f);
-            pingping->BuildSubgraph(g);
-            pingping->SetFeedback(0.5);
-            pingping->SetDelayIndex(lab::TempoSync::TS_16T);
+            pingping->BuildSubgraph(context);
+            pingping->SetFeedback(0.5f);
+            pingping->SetDelayIndex(lab::TempoSync::TS_8);
 
-            pingping->output->connect(ac, context->destination().get(), 0, 0);
+            ac->connect(context->destination(), pingping->output, 0, 0);
 
-            SoundBuffer beat = soundBufferFactory.Create("samples/kick.wav", context->sampleRate());
-            beatNode = beat.play(r, pingping->input, 0.0f);
+            audioClipNode->setBus(r, audioClip);
+
+            ac->connect(pingping->input, audioClipNode, 0, 0);
+            audioClipNode->start(0.0f);
         }
      
         const int seconds = 10;
@@ -60,7 +61,5 @@ struct ValidationApp : public LabSoundExampleApp
         {
           std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-       
-        lab::CleanupAudioContext(context);
     }
 };

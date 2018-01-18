@@ -6,32 +6,32 @@
 // Illustrates the use of simple equal-power stereo panning
 struct StereoPanningApp : public LabSoundExampleApp
 {
-    void PlayExample(const SoundBufferFactory& soundBufferFactory)
+    void PlayExample()
     {
-        auto context = lab::MakeAudioContext();
-        auto ac = context.get();
+        auto context = lab::MakeRealtimeAudioContext();
         
-        SoundBuffer train = soundBufferFactory.Create(
-                "samples/trainrolling.wav", context->sampleRate());
+        std::shared_ptr<AudioBus> audioClip = MakeBusFromFile("samples/trainrolling.wav", false);
+        std::shared_ptr<SampledAudioNode> audioClipNode = std::make_shared<SampledAudioNode>();
         auto stereoPanner = std::make_shared<StereoPannerNode>(context->sampleRate());
-        
-        std::shared_ptr<AudioBufferSourceNode> trainNode;
+
         {
-            ContextGraphLock g(context, "Panning");
-            ContextRenderLock r(context, "Panning");
-            stereoPanner->connect(ac, context->destination().get(), 0, 0);
-            trainNode = train.play(r, stereoPanner, 0.0f);
+            ContextRenderLock r(context.get(), "Stereo Panning");
+
+            audioClipNode->setBus(r, audioClip);
+            context->connect(stereoPanner, audioClipNode, 0, 0);
+            audioClipNode->start(0.0f);
+
+            context->connect(context->destination(), stereoPanner, 0, 0);
         }
         
-        if (trainNode)
+        if (audioClipNode)
         {
-            trainNode->setLooping(true);
+            audioClipNode->setLoop(true);
             
             const int seconds = 8;
             
             std::thread controlThreadTest([&stereoPanner, seconds]()
             {
-
                 float halfTime = seconds * 0.5f;
                 for (float i = 0; i < seconds; i += 0.01f)
                 {
@@ -44,13 +44,10 @@ struct StereoPanningApp : public LabSoundExampleApp
             std::this_thread::sleep_for(std::chrono::seconds(seconds));
             
             controlThreadTest.join();
-
         }
         else
         {
             std::cerr << std::endl << "Couldn't initialize train node to play" << std::endl;
         }
-        
-        lab::CleanupAudioContext(context);
     }
 };
